@@ -436,7 +436,9 @@
 
   /* ---------- 시작 ---------- */
   fetch('/api/info').then((r) => r.json()).then((info) => {
-    joinUrls = info.addresses || [];
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    // 인터넷 주소로 열었으면 그 주소를 그대로, 교사 PC에서 열었으면 와이파이 주소를 안내
+    joinUrls = local ? info.addresses || [] : [location.origin];
     if (state && state.phase === 'lobby') renderLobby();
   }).catch(() => {});
   buildGallery();
