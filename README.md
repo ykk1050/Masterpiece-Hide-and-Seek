@@ -28,7 +28,7 @@
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ykk1050/Masterpiece-Hide-and-Seek)
 
 1. 위 버튼 클릭 → Render 가입(GitHub 계정으로 로그인) → **Apply / Deploy**
-2. 몇 분 뒤 `https://masterpiece-hide-and-seek-xxxx.onrender.com` 같은 주소가 생깁니다.
+2. 몇 분 뒤 주소가 생깁니다. (현재 운영 주소: https://masterpiece-hide-and-seek.onrender.com)
 3. 선생님은 `주소/teacher.html`, 학생은 `주소/play.html` 로 접속 — 설치·와이파이·방화벽 신경 쓸 필요 없음.
 
 > 무료 요금제는 15분 동안 아무도 안 쓰면 잠들어서, 수업 시작 때 첫 접속이 30초~1분 걸릴 수 있어요. 수업 직전에 선생님 화면을 한 번 열어 두세요.
