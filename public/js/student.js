@@ -364,14 +364,61 @@
       const inside = w.x >= me.x && w.x <= me.x + cw && w.y >= me.y && w.y <= me.y + ch;
       drag = inside ? { dx: w.x - me.x, dy: w.y - me.y } : { dx: cw / 2, dy: ch / 2 };
       moveMe(w.x - drag.dx, w.y - drag.dy, false);
-    } else if (isSeeker() && state.seek.stage === 'turn' && !seekPending) {
-      seekPending = true;
-      socket.emit('seek:click', w, (res) => {
-        seekPending = false;
-        if (res && res.error) MHS.toast(res.error, 'bad');
-      });
+    } else if (isSeeker() && state.seek.stage === 'turn' && !seekPending && !confirmAt) {
+      if (e.pointerType !== 'touch') return sendSeek(w);
+      // 터치: 한 번 탭은 살펴보기, 빠르게 두 번 탭하면 선택 → 확인 창
+      cursor = w;
+      socket.emit('seek:cursor', w);
+      const now = performance.now();
+      const near = lastTap && Math.hypot(e.clientX - lastTap.cx, e.clientY - lastTap.cy) < 40;
+      if (lastTap && now - lastTap.t < 350 && near) {
+        lastTap = null;
+        askConfirm(w);
+      } else {
+        lastTap = { t: now, cx: e.clientX, cy: e.clientY };
+      }
     }
   });
+
+  let lastTap = null;
+  let isTouch = matchMedia('(pointer: coarse)').matches;
+  field.addEventListener('pointerdown', (e) => { isTouch = e.pointerType === 'touch'; }, true);
+  let confirmAt = null;
+  function sendSeek(w) {
+    seekPending = true;
+    socket.emit('seek:click', w, (res) => {
+      seekPending = false;
+      if (res && res.error) MHS.toast(res.error, 'bad');
+    });
+  }
+
+  const confirmBox = document.createElement('div');
+  confirmBox.className = 'overlay hidden';
+  confirmBox.style.background = 'rgba(20,16,12,.25)';
+  confirmBox.innerHTML = `<div class="card">
+      <h3 style="margin-bottom:6px">이 위치에 친구가 숨어 있다고 생각하나요?</h3>
+      <p class="muted small" style="margin:0 0 14px">노란 표시가 있는 곳을 선택해요.</p>
+      <div class="row" style="justify-content:center">
+        <button class="btn big" data-c="no">아니요, 다시 볼래요</button>
+        <button class="btn big primary" data-c="yes">네, 여기예요!</button>
+      </div></div>`;
+  document.body.appendChild(confirmBox);
+  function askConfirm(w) {
+    confirmAt = w;
+    confirmBox.classList.remove('hidden');
+  }
+  function closeConfirm() {
+    confirmAt = null;
+    confirmBox.classList.add('hidden');
+  }
+  confirmBox.querySelector('[data-c=yes]').onclick = () => {
+    const w = confirmAt;
+    closeConfirm();
+    if (w && isSeeker() && state.seek.stage === 'turn') sendSeek(w);
+  };
+  confirmBox.querySelector('[data-c=no]').onclick = closeConfirm;
+  // 차례가 끝나면(시간 초과 등) 확인 창도 닫기
+  socket.on('room:state', () => { if (confirmAt && !(isSeeker() && state.seek.stage === 'turn')) closeConfirm(); });
   field.addEventListener('pointermove', (e) => {
     if (!lastView || !state) return;
     const w = MHS.toWorld(lastView, field, e);
@@ -441,7 +488,7 @@
         hint.textContent = '';
       } else if (isSeeker() && s.stage === 'turn') {
         banner.textContent = s.magnifier ? `🔎 돋보기 찬스! ${MHS.LENS.zoom}배로 보며 찾아보세요` : '🔍 내가 술래! 숨은 친구를 찾아 클릭하세요';
-        hint.textContent = s.magnifier ? '3명 연속으로 못 찾아서 돋보기가 생겼어요. 마우스를 움직여 살펴보세요!' : '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!';
+        hint.textContent = (isTouch ? '👆 한 번 탭: 살펴보기 · 두 번 탭: 선택  ' : '') + (s.magnifier ? '3명 연속으로 못 찾아서 돋보기가 생겼어요. 마우스를 움직여 살펴보세요!' : '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!');
       } else {
         const seeker = byId.get(s.seekerId);
         banner.textContent = s.stage === 'turn' ? `🔍 ${seeker ? seeker.name : ''} 술래가 찾는 중…` : '다음 술래를 정하는 중…';
@@ -455,6 +502,14 @@
     if (state.phase === 'seeking' && state.seek.stage === 'turn') {
       if (hasLens()) MHS.drawLens(field, painting, list, state.cell, view, cursor);
       Views.drawCursor(ctx, view, cursor);
+      if (confirmAt) {
+        const k = view.dpr / view.scale;
+        ctx.lineWidth = 4 * k;
+        ctx.strokeStyle = '#ffd166';
+        ctx.beginPath();
+        ctx.arc(confirmAt.x, confirmAt.y, 16 * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
   }
   requestAnimationFrame(frame);
