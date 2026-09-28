@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>학생 · 명화 속 숨바꼭질</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">명화 속 숨바꼭질<span class="dot">.</span></a>
+    <span class="chip hidden" id="meChip"></span>
+    <span class="spacer"></span>
+    <span class="timer hidden" id="timer">0:00</span>
+  </header>
+
+  <!-- 1. 입장 -->
+  <section class="screen" id="join">
+    <div class="container">
+      <div class="card join-card">
+        <h2 class="section-title">방에 들어가기</h2>
+        <p class="section-sub">선생님 화면에 보이는 방 번호를 입력하세요.</p>
+        <div class="field">
+          <label for="codeInput">방 번호</label>
+          <input class="input code-input" id="codeInput" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="0000">
+        </div>
+        <div class="field">
+          <label for="nameInput">이름</label>
+          <input class="input" id="nameInput" maxlength="12" autocomplete="off" placeholder="예: 김하늘">
+        </div>
+        <div class="field">
+          <span class="label">내 캐릭터 모양</span>
+          <div class="shape-grid" id="shapeGrid"></div>
+        </div>
+        <button class="btn big primary" id="joinBtn" style="width:100%">들어가기</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 대기 -->
+  <section class="screen hidden" id="wait">
+    <div class="container">
+      <div class="card wait-box">
+        <div class="pv-big" id="waitAvatar"></div>
+        <h2 class="section-title" id="waitTitle"></h2>
+        <p class="muted">선생님이 게임을 시작하길 기다리고 있어요<span class="dots"></span></p>
+        <div style="max-width:520px;margin:20px auto 0">
+          <div class="frame"><img id="waitImg" alt=""></div>
+          <div class="caption" id="waitCaption"></div>
+          <p class="muted small">오늘 숨을 명화예요. 어디에 숨으면 좋을지 미리 살펴보세요!</p>
+        </div>
+        <div class="players" id="waitPlayers" style="justify-content:center;margin-top:16px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 게임 -->
+  <section class="hidden" id="game">
+    <div class="game wide-side">
+      <div class="stage">
+        <canvas class="field" id="field"></canvas>
+        <div class="banner" id="banner"></div>
+        <div class="hint" id="hint"></div>
+      </div>
+      <aside class="side">
+        <!-- 숨기: 색칠 도구 -->
+        <div id="paintPanel" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+          <div class="editor-wrap"><canvas id="editor"></canvas></div>
+          <div class="row" style="justify-content:space-between">
+            <button class="btn sm" id="peekBtn">👀 누르고 있으면 원래 그림 보기</button>
+            <label class="switch small"><input type="checkbox" id="gridToggle"> 격자</label>
+          </div>
+          <div>
+            <div class="label-sm">도구</div>
+            <div class="row" style="justify-content:space-between">
+              <div class="tools" id="tools">
+                <button class="tool on" data-tool="brush" title="붓">🖌️</button>
+                <button class="tool" data-tool="fill" title="채우기">🪣</button>
+                <button class="tool" data-tool="picker" title="스포이드: 색 뽑기">💧</button>
+                <button class="tool" data-tool="eraser" title="지우개 (흰색으로)">🧽</button>
+              </div>
+              <div class="tools">
+                <button class="tool" id="undoBtn" title="되돌리기">↩️</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="label-sm">붓 크기</div>
+            <div class="sizes" id="sizes">
+              <button data-size="1" class="on"><i style="width:6px;height:6px"></i></button>
+              <button data-size="2"><i style="width:10px;height:10px"></i></button>
+              <button data-size="3"><i style="width:14px;height:14px"></i></button>
+              <button data-size="4"><i style="width:18px;height:18px"></i></button>
+            </div>
+          </div>
+          <div>
+            <div class="label-sm">색</div>
+            <div class="color-row">
+              <div class="swatch-now" id="swatchNow" title="눌러서 색 고르기"><input type="color" id="colorInput" value="#3a5a8c"></div>
+              <div class="adjust">
+                <button class="btn" data-adj="lighter">☀️ 밝게</button>
+                <button class="btn" data-adj="darker">🌙 어둡게</button>
+                <button class="btn" data-adj="vivid">🔥 진하게</button>
+                <button class="btn" data-adj="dull">🌫️ 흐리게</button>
+                <button class="btn" data-adj="warm">🧡 따뜻하게</button>
+                <button class="btn" data-adj="cool">💙 차갑게</button>
+              </div>
+            </div>
+          </div>
+          <div class="swatches" id="palette"></div>
+          <div>
+            <div class="label-sm">최근 쓴 색</div>
+            <div class="swatches" id="recent"></div>
+          </div>
+          <p class="muted small" id="paintTip" style="margin:0"></p>
+        </div>
+
+        <!-- 찾기 -->
+        <div id="seekPanel" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+          <div class="panel" id="seekStatus"></div>
+          <button class="btn" id="whereBtn">📍 누르고 있으면 내 위치 보기</button>
+          <div class="panel"><h3 style="margin-bottom:8px">친구들</h3><div id="seekPlayers"></div></div>
+        </div>
+
+        <!-- 결과 -->
+        <div id="resultPanel" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+          <div class="panel" id="resultSummary"></div>
+          <div class="results-list" id="resultCards"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/shapes.js"></script>
+  <script src="/js/common.js"></script>
+  <script src="/js/views.js"></script>
+  <script src="/js/editor.js"></script>
+  <script src="/js/student.js"></script>
+</body>
+</html>

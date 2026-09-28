@@ -1,0 +1,437 @@
+(() => {
+  const socket = io();
+  const $ = (s) => document.querySelector(s);
+  const STORE_KEY = 'mhs-player';
+
+  let state = null;
+  let me = null; // { id, name, shape, x, y, pixels }
+  let painting = null;
+  let loadingUrl = null;
+  let chars = [];
+  let cursor = null;
+  let showWhere = false;
+  let chosenShape = 'person';
+  const markers = new Views.Markers();
+  const roulette = new Views.Roulette();
+
+  MHS.blockZoom();
+
+  /* ---------- 입장 ---------- */
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('code')) $('#codeInput').value = params.get('code');
+
+  const grid = $('#shapeGrid');
+  for (const id of Shapes.ORDER) {
+    const b = document.createElement('button');
+    b.className = 'shape-btn' + (id === chosenShape ? ' on' : '');
+    b.dataset.shape = id;
+    const pv = document.createElement('div');
+    pv.className = 'pv';
+    pv.appendChild(MHS.shapePreview(id, 60));
+    b.appendChild(pv);
+    b.insertAdjacentHTML('beforeend', `<span>${Shapes.DEFS[id].name}</span>`);
+    b.onclick = () => {
+      chosenShape = id;
+      grid.querySelectorAll('.shape-btn').forEach((x) => x.classList.toggle('on', x === b));
+    };
+    grid.appendChild(b);
+  }
+
+  $('#joinBtn').onclick = () => {
+    const code = $('#codeInput').value.trim();
+    const name = $('#nameInput').value.trim();
+    if (!/^\d{4}$/.test(code)) return MHS.toast('방 번호 4자리를 입력해 주세요.', 'bad');
+    if (!name) return MHS.toast('이름을 입력해 주세요.', 'bad');
+    join({ code, name, shape: chosenShape });
+  };
+  $('#nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#joinBtn').click(); });
+
+  function join(data) {
+    $('#joinBtn').disabled = true;
+    socket.emit('player:join', data, (res) => {
+      $('#joinBtn').disabled = false;
+      if (res.error) {
+        if (data.playerId) sessionStorage.removeItem(STORE_KEY);
+        MHS.toast(res.error, 'bad');
+        render();
+        return;
+      }
+      sessionStorage.setItem(STORE_KEY, JSON.stringify({ code: data.code, playerId: res.playerId }));
+      setMe(res.you);
+      onState(res.state);
+    });
+  }
+
+  socket.on('connect', () => {
+    const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+    if (saved) join(saved);
+  });
+
+  socket.on('kicked', () => {
+    sessionStorage.removeItem(STORE_KEY);
+    state = null;
+    me = null;
+    MHS.toast('선생님이 방에서 내보냈어요.', 'bad');
+    render();
+  });
+
+  function setMe(you) {
+    me = { ...you };
+    editor.setCharacter(me.shape, me.pixels);
+  }
+
+  socket.on('player:you', setMe);
+  socket.on('room:state', onState);
+  socket.on('room:characters', (list) => {
+    chars = list;
+    if (state && state.phase === 'results') renderResults();
+  });
+  socket.on('seek:cursor', (c) => { if (!isSeeker()) cursor = c; });
+  socket.on('seek:result', (r) => {
+    markers.add(r);
+    if (!state || !me) return;
+    const name = (id) => (state.players.find((p) => p.id === id) || {}).name || '';
+    if (r.hit && r.foundId === me.id) MHS.toast('앗, 들켰어요! 😳', 'bad');
+    else if (r.hit) MHS.toast(`${MHS.josa(name(r.seekerId), '이', '가')} ${MHS.josa(name(r.foundId), '을', '를')} 찾았어요!`, 'ok');
+    else if (r.timeout) MHS.toast('시간 초과! 술래가 바뀌어요', 'bad');
+    else MHS.toast(r.turnOver ? '놓쳤어요! 술래가 바뀌어요' : '놓쳤어요!', 'bad');
+  });
+
+  function onState(s) {
+    const prev = state && state.phase;
+    state = s;
+    MHS.syncTime(s);
+    if (s.phase === 'lobby' && prev && prev !== 'lobby') chars = [];
+    if (!painting || painting.url !== s.painting.url) ensurePainting(s.painting.url);
+    render();
+  }
+
+  async function ensurePainting(url) {
+    if (loadingUrl === url) return;
+    loadingUrl = url;
+    try {
+      const p = await MHS.loadPainting(url);
+      if (loadingUrl !== url) return;
+      painting = p;
+      render();
+    } catch (e) {
+      loadingUrl = null;
+      MHS.toast(e.message, 'bad');
+    }
+  }
+
+  const isSeeker = () => state && me && state.phase === 'seeking' && state.seek && state.seek.seekerId === me.id;
+
+  /* ---------- 화면 전환 ---------- */
+
+  function render() {
+    const phase = state && me ? state.phase : null;
+    $('#join').classList.toggle('hidden', !!phase);
+    $('#wait').classList.toggle('hidden', phase !== 'lobby');
+    $('#game').classList.toggle('hidden', !phase || phase === 'lobby');
+    $('#meChip').classList.toggle('hidden', !phase);
+    $('#paintPanel').classList.toggle('hidden', phase !== 'hiding');
+    $('#seekPanel').classList.toggle('hidden', phase !== 'seeking');
+    $('#resultPanel').classList.toggle('hidden', phase !== 'results');
+    if (!phase) return;
+
+    $('#meChip').textContent = `${me.name} · 방 ${state.code}`;
+    roulette.update(state, me.id);
+
+    if (phase === 'lobby') {
+      const av = $('#waitAvatar');
+      av.innerHTML = '';
+      av.appendChild(MHS.shapePreview(me.shape, 100));
+      $('#waitTitle').textContent = `${me.name}, 환영해요!`;
+      $('#waitImg').src = state.painting.url;
+      $('#waitCaption').textContent = MHS.paintingCaption(state.painting);
+      const box = $('#waitPlayers');
+      box.innerHTML = '';
+      for (const p of state.players) {
+        const el = document.createElement('span');
+        el.className = 'pchip' + (p.connected ? '' : ' off');
+        el.appendChild(Views.avatar(p.shape));
+        el.insertAdjacentHTML('beforeend', `<span>${MHS.esc(p.name)}</span>`);
+        box.appendChild(el);
+      }
+    }
+    if (phase === 'hiding') {
+      $('#paintTip').textContent = state.settings.allowEyedropper
+        ? '💧 스포이드로 그림에서 색을 뽑을 수 있어요. 그래도 비슷한 색을 직접 만들어 보면 더 재미있어요!'
+        : '🎨 이번 판은 스포이드로 그림 색을 뽑을 수 없어요. 밝게·어둡게·따뜻하게 버튼으로 색을 맞춰 보세요.';
+    }
+    if (phase === 'seeking') renderSeek();
+    if (phase === 'results') renderResults();
+  }
+
+  function renderSeek() {
+    const s = state.seek;
+    const seeker = state.players.find((p) => p.id === s.seekerId);
+    const mine = state.players.find((p) => p.id === me.id) || {};
+    let html = '';
+    if (s.stage === 'turn' && isSeeker()) {
+      html = `<div class="label-sm">내 차례!</div><h3>숨은 친구를 찾아 클릭하세요 🔍</h3>
+        <p class="muted small" style="margin:6px 0 0">남은 기회 <b>${state.settings.missesAllowed - s.misses}번</b> · 남은 시간 <b id="turnLeft"></b><br>찾으면 계속, 놓치면 다른 친구에게 차례가 넘어가요.</p>`;
+    } else if (s.stage === 'turn') {
+      html = `<div class="label-sm">지금 술래</div><h3>${MHS.esc(seeker ? seeker.name : '')}</h3>
+        <p class="muted small" style="margin:6px 0 0">남은 시간 <b id="turnLeft"></b></p>`;
+    } else if (s.stage === 'choosing') {
+      html = `<div class="label-sm">다음 술래</div><h3>${state.settings.seekerMode === 'teacher' ? '선생님이 고르고 있어요' : '뽑는 중'}<span class="dots"></span></h3>`;
+    } else {
+      html = '<div class="label-sm">차례 교대</div><h3>잠시만요<span class="dots"></span></h3>';
+    }
+    html += `<div style="margin-top:10px">${mine.found ? '<span class="tag found">나는 들켰어요</span>' : '<span class="tag safe">나는 아직 숨어 있어요 🤫</span>'} ${mine.hasSought ? '<span class="tag done">술래 해 봤어요</span>' : ''}</div>`;
+    $('#seekStatus').innerHTML = html;
+    $('#whereBtn').classList.toggle('hidden', !!mine.found);
+    $('#seekPlayers').innerHTML = `<ul class="plist">${state.players.map((p) => `
+      <li><span class="nm">${MHS.esc(p.name)}${p.id === me.id ? ' (나)' : ''}</span>
+      ${p.id === s.seekerId ? '<span class="tag seeker">술래</span>' : p.found ? '<span class="tag found">발견됨</span>' : '<span class="tag safe">숨음</span>'}
+      ${p.finds ? `<span class="small muted">${p.finds}명</span>` : ''}</li>`).join('')}</ul>`;
+  }
+
+  function renderResults() {
+    $('#resultSummary').innerHTML = '<h3 style="margin-bottom:8px">게임 결과</h3>' + Views.summaryHtml(state);
+    if (painting && chars.length) Views.resultCards($('#resultCards'), state, chars, painting);
+  }
+
+  /* ---------- 색칠 도구 ---------- */
+
+  let lastPaintSent = 0, paintTimer = null;
+  const editor = new PaintEditor($('#editor'), {
+    getPainting: () => painting,
+    getMe: () => me,
+    getCell: () => (state ? state.cell : 2.6),
+    canPickPainting: () => state && state.settings.allowEyedropper,
+    onPick: (hex) => {
+      setColor(hex);
+      setTool('brush');
+    },
+    onChange: (pixels, final) => {
+      me.pixels = pixels;
+      clearTimeout(paintTimer);
+      const send = () => {
+        lastPaintSent = Date.now();
+        socket.emit('player:paint', { pixels });
+      };
+      if (final || Date.now() - lastPaintSent > 400) send();
+      else paintTimer = setTimeout(send, 400);
+      if (final && (editor.tool === 'brush' || editor.tool === 'fill')) addRecent(editor.color);
+    },
+  });
+
+  function setTool(t) {
+    editor.tool = t;
+    document.querySelectorAll('#tools .tool').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
+  }
+  document.querySelectorAll('#tools .tool').forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
+  $('#undoBtn').onclick = () => editor.undo();
+  document.querySelectorAll('#sizes button').forEach((b) => {
+    b.onclick = () => {
+      editor.size = Number(b.dataset.size);
+      document.querySelectorAll('#sizes button').forEach((x) => x.classList.toggle('on', x === b));
+    };
+  });
+  $('#gridToggle').onchange = (e) => { editor.grid = e.target.checked; };
+
+  const peekOn = () => { editor.peek = true; };
+  const peekOff = () => { editor.peek = false; };
+  $('#peekBtn').addEventListener('pointerdown', peekOn);
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => $('#peekBtn').addEventListener(t, peekOff));
+
+  function setColor(hex) {
+    editor.color = hex;
+    $('#colorInput').value = '#' + hex;
+    $('#swatchNow').style.background = '#' + hex;
+    if (editor.tool === 'eraser') setTool('brush');
+  }
+  $('#colorInput').addEventListener('input', (e) => setColor(e.target.value.slice(1)));
+
+  document.querySelectorAll('[data-adj]').forEach((b) => {
+    b.onclick = () => {
+      const rgb = MHS.hexToRgb(editor.color);
+      let out;
+      const [h, s, l] = MHS.rgbToHsl(rgb);
+      switch (b.dataset.adj) {
+        case 'lighter': out = MHS.hslToRgb([h, s, Math.min(1, l + 0.06)]); break;
+        case 'darker': out = MHS.hslToRgb([h, s, Math.max(0, l - 0.06)]); break;
+        case 'vivid': out = MHS.hslToRgb([h, Math.min(1, s + 0.08), l]); break;
+        case 'dull': out = MHS.hslToRgb([h, Math.max(0, s - 0.08), l]); break;
+        case 'warm': out = [rgb[0] + 10, rgb[1] + 3, rgb[2] - 10]; break;
+        case 'cool': out = [rgb[0] - 10, rgb[1], rgb[2] + 10]; break;
+      }
+      setColor(MHS.rgbToHex(out));
+    };
+  });
+
+  const PALETTE = [
+    '111111', '4a4a4a', '8c8c8c', 'd9d9d9', 'fbf7ee', '5a3a22', '8b5a2b', 'c49a6c', 'e8cfa6', 'f2d7c1',
+    'b3261e', 'e0533b', 'f28c28', 'f2c14e', 'fff08a', '2f5d34', '6a994e', 'a7c957', '1d3557', '2f6db5',
+    '6fb1e0', '2a9d8f', '6a4c93', 'c77dff', 'e89bb5', '9e2a2b', 'bc6c25', '606c38', '283618', '0b132b',
+  ];
+  const pal = $('#palette');
+  for (const hex of PALETTE) {
+    const b = document.createElement('button');
+    b.style.background = '#' + hex;
+    b.title = '#' + hex;
+    b.onclick = () => setColor(hex);
+    pal.appendChild(b);
+  }
+  let recent = [];
+  function addRecent(hex) {
+    recent = [hex, ...recent.filter((x) => x !== hex)].slice(0, 10);
+    const box = $('#recent');
+    box.innerHTML = '';
+    for (const h of recent) {
+      const b = document.createElement('button');
+      b.style.background = '#' + h;
+      b.onclick = () => setColor(h);
+      box.appendChild(b);
+    }
+  }
+  setColor(editor.color);
+
+  window.addEventListener('keydown', (e) => {
+    if (!state || state.phase !== 'hiding' || !me) return;
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      editor.undo();
+      return;
+    }
+    const step = state.cell;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (d && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault();
+      moveMe(me.x + d[0], me.y + d[1], true);
+    }
+  });
+
+  $('#whereBtn').addEventListener('pointerdown', () => { showWhere = true; });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => $('#whereBtn').addEventListener(t, () => { showWhere = false; }));
+
+  /* ---------- 필드(그림판) ---------- */
+
+  const field = $('#field');
+  let lastView = null;
+  let drag = null;
+  let lastMoveSent = 0;
+
+  function charSize() {
+    const s = Shapes.get(me.shape);
+    return { w: s.cols * state.cell, h: s.rows * state.cell };
+  }
+
+  function moveMe(x, y, final) {
+    const { w, h } = charSize();
+    me.x = Math.max(0, Math.min(painting.w - w, x));
+    me.y = Math.max(0, Math.min(painting.h - h, y));
+    if (final || Date.now() - lastMoveSent > 80) {
+      lastMoveSent = Date.now();
+      socket.emit('player:move', { x: me.x, y: me.y });
+    }
+  }
+
+  let seekPending = false;
+  field.addEventListener('pointerdown', (e) => {
+    if (!state || !me || !painting || !lastView) return;
+    const w = MHS.toWorld(lastView, field, e);
+    if (state.phase === 'hiding') {
+      field.setPointerCapture(e.pointerId);
+      const { w: cw, h: ch } = charSize();
+      const inside = w.x >= me.x && w.x <= me.x + cw && w.y >= me.y && w.y <= me.y + ch;
+      drag = inside ? { dx: w.x - me.x, dy: w.y - me.y } : { dx: cw / 2, dy: ch / 2 };
+      moveMe(w.x - drag.dx, w.y - drag.dy, false);
+    } else if (isSeeker() && state.seek.stage === 'turn' && !seekPending) {
+      seekPending = true;
+      socket.emit('seek:click', w, (res) => {
+        seekPending = false;
+        if (res && res.error) MHS.toast(res.error, 'bad');
+      });
+    }
+  });
+  field.addEventListener('pointermove', (e) => {
+    if (!lastView || !state) return;
+    const w = MHS.toWorld(lastView, field, e);
+    if (drag && state.phase === 'hiding') moveMe(w.x - drag.dx, w.y - drag.dy, false);
+    if (isSeeker()) {
+      cursor = w;
+      socket.emit('seek:cursor', w);
+    }
+  });
+  const endDrag = () => {
+    if (drag && state && state.phase === 'hiding') moveMe(me.x, me.y, true);
+    drag = null;
+  };
+  field.addEventListener('pointerup', endDrag);
+  field.addEventListener('pointercancel', endDrag);
+
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!state || !me || state.phase === 'lobby') return;
+
+    let deadline = null;
+    if (state.phase === 'hiding') deadline = state.phaseDeadline;
+    if (state.phase === 'seeking' && state.seek && state.seek.stage === 'turn') deadline = state.seek.deadline;
+    const timer = $('#timer');
+    timer.classList.toggle('hidden', !deadline);
+    if (deadline) {
+      const left = MHS.remaining(deadline);
+      timer.textContent = MHS.fmtTime(left);
+      timer.classList.toggle('low', left < 10000);
+      const tl = $('#turnLeft');
+      if (tl) tl.textContent = MHS.fmtTime(left);
+    }
+    if (!painting) return;
+
+    const banner = $('#banner');
+    const hint = $('#hint');
+    const byId = new Map(state.players.map((p) => [p.id, p]));
+    let list = [];
+    const outline = {}, labels = {};
+
+    if (state.phase === 'hiding') {
+      list = [{ ...me }];
+      const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 250);
+      if (!drag) outline[me.id] = `rgba(255, 209, 102, ${pulse.toFixed(2)})`;
+      banner.textContent = '🎨 자리를 잡고 그 자리 그림과 똑같이 색칠하세요!';
+      banner.classList.remove('me');
+      hint.textContent = '그림을 누르거나 끌어서 캐릭터를 옮겨요 · 방향키로 한 칸씩 옮길 수 있어요';
+      editor.render();
+    } else {
+      list = chars.filter((c) => byId.has(c.id));
+      for (const c of list) {
+        const p = byId.get(c.id);
+        if (state.phase === 'results') {
+          outline[c.id] = p.found ? '#ff8a6b' : '#f2c14e';
+          labels[c.id] = p.name;
+        } else if (p.found) {
+          outline[c.id] = '#ff8a6b';
+          labels[c.id] = p.name;
+        } else if (c.id === me.id && showWhere) {
+          outline[c.id] = '#ffd166';
+        }
+      }
+      const s = state.seek;
+      banner.classList.toggle('me', !!isSeeker());
+      if (state.phase === 'results') {
+        banner.textContent = '🏁 모두 공개! 노란 테두리는 끝까지 숨은 친구예요';
+        hint.textContent = '';
+      } else if (isSeeker() && s.stage === 'turn') {
+        banner.textContent = '🔍 내가 술래! 숨은 친구를 찾아 클릭하세요';
+        hint.textContent = '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!';
+      } else {
+        const seeker = byId.get(s.seekerId);
+        banner.textContent = s.stage === 'turn' ? `🔍 ${seeker ? seeker.name : ''} 술래가 찾는 중…` : '다음 술래를 정하는 중…';
+        hint.textContent = '';
+      }
+    }
+
+    const { view, ctx } = MHS.drawScene(field, painting, list, state.cell, { outline, labels });
+    lastView = view;
+    markers.draw(ctx, view);
+    if (state.phase === 'seeking' && state.seek.stage === 'turn') Views.drawCursor(ctx, view, cursor);
+  }
+  requestAnimationFrame(frame);
+
+  render();
+})();

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>선생님 · 명화 속 숨바꼭질</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">명화 속 숨바꼭질<span class="dot">.</span></a>
+    <span class="chip code hidden" id="codeChip"></span>
+    <span class="chip hidden" id="phaseChip"></span>
+    <span class="spacer"></span>
+    <span class="timer hidden" id="timer">0:00</span>
+  </header>
+
+  <!-- 1. 방 만들기 -->
+  <section class="screen" id="setup">
+    <div class="container">
+      <div class="card" style="margin-bottom:20px">
+        <h2 class="section-title">오늘의 명화 고르기</h2>
+        <p class="section-sub">학생들이 숨을 그림이에요. 사람·물건이 많고 색이 다양한 그림일수록 숨기 좋아요.</p>
+        <div class="gallery" id="gallery"></div>
+        <input type="file" id="uploadInput" accept="image/*" class="hidden">
+      </div>
+      <div id="settingsHome">
+        <div class="card" id="settingsCard">
+          <h2 class="section-title">게임 설정</h2>
+          <p class="section-sub">대기실에서도 바꿀 수 있어요.</p>
+          <div class="settings-grid">
+            <div class="field">
+              <label for="sHide">숨는 시간 (색칠 시간)</label>
+              <select class="input" id="sHide">
+                <option value="60">1분</option><option value="120">2분</option><option value="180">3분</option>
+                <option value="300" selected>5분</option><option value="420">7분</option><option value="600">10분</option><option value="900">15분</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sTurn">술래 한 번에 주어지는 시간</label>
+              <select class="input" id="sTurn">
+                <option value="20">20초</option><option value="30">30초</option><option value="40" selected>40초</option>
+                <option value="60">1분</option><option value="90">1분 30초</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="label">술래 정하기</span>
+              <div class="seg" data-setting="seekerMode">
+                <button data-v="random" class="on">무작위</button><button data-v="teacher">선생님이 지정</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="sMiss">술래 차례에 틀려도 되는 횟수</label>
+              <select class="input" id="sMiss">
+                <option value="1" selected>1번 틀리면 교대</option><option value="2">2번 틀리면 교대</option><option value="3">3번 틀리면 교대</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="label">캐릭터 크기</span>
+              <div class="seg" data-setting="charSize">
+                <button data-v="small">작게</button><button data-v="medium" class="on">보통</button><button data-v="large">크게</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label">색 고르기 도움</span>
+              <label class="switch"><input type="checkbox" id="sEyedrop" checked> 그림에서 색 뽑기(스포이드) 허용</label>
+              <span class="muted small">끄면 학생이 직접 색을 섞어 맞춰야 해요.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="justify-content:flex-end;margin-top:20px">
+        <button class="btn big ghost hidden" id="cancelPainting">취소</button>
+        <button class="btn big primary" id="createBtn">방 만들기</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 대기실 -->
+  <section class="screen hidden" id="lobby">
+    <div class="container">
+      <div class="lobby-grid">
+        <div style="display:flex;flex-direction:column;gap:20px">
+          <div class="join-box">
+            <div class="muted">학생 기기에서 아래 주소로 들어와 방 번호를 입력하세요</div>
+            <div class="code-big" id="lobbyCode">----</div>
+            <div class="url" id="joinUrl"></div>
+          </div>
+          <div class="card">
+            <div class="row" style="justify-content:space-between;margin-bottom:10px">
+              <h3>들어온 학생 <span id="playerCount" class="muted"></span></h3>
+            </div>
+            <div class="players" id="lobbyPlayers"></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:20px">
+          <div class="card">
+            <div class="frame"><img id="lobbyImg" alt=""></div>
+            <div class="caption" id="lobbyCaption"></div>
+            <div class="row" style="justify-content:center;margin-top:12px">
+              <button class="btn sm" id="changePainting">그림 바꾸기</button>
+              <button class="btn sm" id="toggleSettings">설정 바꾸기</button>
+            </div>
+          </div>
+          <div id="lobbySettings" class="hidden"></div>
+          <button class="btn big primary" id="startBtn">게임 시작 · 숨기 시작!</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 게임 (숨기 / 찾기 / 결과) -->
+  <section class="hidden" id="game">
+    <div class="game" id="gameLayout">
+      <div class="stage">
+        <canvas class="field" id="field"></canvas>
+        <div class="banner" id="banner"></div>
+      </div>
+      <aside class="side" id="side"></aside>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/shapes.js"></script>
+  <script src="/js/common.js"></script>
+  <script src="/js/views.js"></script>
+  <script src="/js/teacher.js"></script>
+</body>
+</html>
