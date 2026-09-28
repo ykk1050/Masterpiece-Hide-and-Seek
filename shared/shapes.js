@@ -87,7 +87,7 @@
   const ORDER = ['person', 'cat', 'dog', 'rabbit', 'bird', 'fish'];
 
   // 캐릭터 크기 설정: 격자 한 칸이 명화(긴 변 = 1600) 위에서 차지하는 크기
-  const CELL_SIZES = { small: 2, medium: 2.6, large: 3.2 };
+  const CELL_SIZES = { small: 2, medium: 2.6, large: 3.2, xlarge: 4.2 };
   const WORLD_LONG_SIDE = 1600;
 
   function insidePart(p, x, y) {

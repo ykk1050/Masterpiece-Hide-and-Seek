@@ -176,6 +176,8 @@
 
   async function onState(s) {
     const prevPhase = state && state.phase;
+    const prevSeeker = state && state.seek && state.seek.seekerId;
+    if (!s.seek || s.seek.seekerId !== prevSeeker) cursor = null;
     state = s;
     MHS.syncTime(s);
     if (s.phase === 'lobby' && prevPhase && prevPhase !== 'lobby') {

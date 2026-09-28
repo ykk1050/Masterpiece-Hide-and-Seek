@@ -223,6 +223,11 @@ function playerJoin(socket, { code, name, shape, playerId }) {
   if (!room) return { error: '방 번호를 다시 확인해 주세요.' };
 
   let player = playerId && room.players.get(playerId);
+  if (!player && name) {
+    const same = [...room.players.values()].find((p) => p.name === String(name).trim().slice(0, 12));
+    if (same && same.connected) return { error: '같은 이름의 친구가 이미 있어요. 이름 뒤에 번호를 붙여 주세요.' };
+    if (same) player = same; // 새로고침·기기 변경으로 끊긴 학생이 같은 이름으로 다시 들어온 경우
+  }
   if (!player) {
     if (room.phase === 'seeking' || room.phase === 'results') {
       return { error: '이미 게임이 진행 중이에요. 다음 판에 참여해 주세요.' };
@@ -264,9 +269,7 @@ function disconnect(socket) {
     const p = room.players.get(d.playerId);
     if (p && p.socketId === socket.id) {
       p.connected = false;
-      const online = [...room.players.values()].filter((x) => x.connected);
-      if (room.phase === 'hiding' && online.length && online.every((x) => x.ready)) startSeeking(room);
-      else broadcast(room);
+      if (!checkAllReady(room)) broadcast(room);
     }
   }
 }
@@ -280,9 +283,12 @@ function teacherAction(socket, action, payload) {
   payload = payload || {};
 
   switch (action) {
-    case 'settings':
-      room.settings = sanitizeSettings(payload, room.settings);
+    case 'settings': {
+      const next = sanitizeSettings(payload, room.settings);
+      if (room.phase !== 'lobby') next.charSize = room.settings.charSize; // 진행 중엔 크기 고정
+      room.settings = next;
       break;
+    }
     case 'painting': {
       if (room.phase !== 'lobby') return { error: '대기실에서만 그림을 바꿀 수 있어요.' };
       const err = applyPainting(room, payload);
@@ -304,6 +310,7 @@ function teacherAction(socket, action, payload) {
       if (room.phase === 'seeking') return { error: '찾기 중에는 내보낼 수 없어요.' };
       room.players.delete(p.id);
       if (p.socketId) io.to(p.socketId).emit('kicked');
+      checkAllReady(room);
       break;
     }
     case 'start':
@@ -360,9 +367,16 @@ function playerReady(socket, { ready }) {
   const { room, p } = playerOf(socket);
   if (!p || room.phase !== 'hiding') return;
   p.ready = !!ready;
+  if (!checkAllReady(room)) broadcast(room);
+}
+
+/** 숨기 중 접속한 학생이 모두 완료했으면 찾기 시작 (시작했으면 true) */
+function checkAllReady(room) {
+  if (room.phase !== 'hiding') return false;
   const online = [...room.players.values()].filter((x) => x.connected);
-  if (online.length && online.every((x) => x.ready)) startSeeking(room);
-  else broadcast(room);
+  if (!online.length || !online.every((x) => x.ready)) return false;
+  startSeeking(room);
+  return true;
 }
 
 function playerMove(socket, { x, y }) {
@@ -463,6 +477,7 @@ function nextSeeker(room) {
   room.seek.stage = 'choosing';
   room.seek.seekerId = null;
   room.seek.misses = 0;
+  room.seek.magnifier = false;
   if (room.settings.seekerMode === 'random') {
     room.seek.deadline = Date.now() + ROULETTE_MS;
     clearTimeout(room.timer);
@@ -532,6 +547,12 @@ function seekClick(room, x, y) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return {};
   const seeker = room.players.get(room.seek.seekerId);
   const target = hitTest(room, x, y, room.seek.seekerId);
+  if (!target) {
+    const cell = cellSize(room);
+    const onChar = (p) => Shapes.hit(p.shape, (x - p.x) / cell, (y - p.y) / cell, 0);
+    if (seeker && !seeker.found && onChar(seeker)) return { error: '여기는 내 캐릭터예요! 다른 곳을 찾아보세요.' };
+    if ([...room.players.values()].some((p) => p.found && onChar(p))) return { error: '이미 찾은 친구예요.' };
+  }
 
   if (target) {
     target.found = true;
