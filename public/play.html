@@ -67,6 +67,8 @@
       <aside class="side">
         <!-- 숨기: 색칠 도구 -->
         <div id="paintPanel" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+          <button class="btn big primary" id="readyBtn">✅ 그리기 완료</button>
+          <div class="muted small" id="readyInfo" style="text-align:center;margin-top:-6px"></div>
           <div class="editor-wrap"><canvas id="editor"></canvas></div>
           <div class="row" style="justify-content:space-between">
             <button class="btn sm" id="peekBtn">👀 누르고 있으면 원래 그림 보기</button>

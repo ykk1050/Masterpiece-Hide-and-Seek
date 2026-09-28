@@ -93,6 +93,7 @@ class PaintEditor {
 
   down(e) {
     e.preventDefault();
+    if (this.opts.isLocked && this.opts.isLocked()) return;
     this.canvas.setPointerCapture(e.pointerId);
     const p = this.eventCell(e);
     this.hover = p;

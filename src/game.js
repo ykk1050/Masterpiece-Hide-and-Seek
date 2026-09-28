@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const HIT_TOLERANCE = 0.6; // 칸 단위 클릭 여유
+const MAGNIFIER_AFTER = 3; // 연속 실패 횟수
 const ROULETTE_MS = 3000;
 const BETWEEN_MS = 2500;
 const ROOM_TTL_MS = 4 * 60 * 60 * 1000;
@@ -99,6 +100,7 @@ function publicState(room) {
       hasSought: p.hasSought,
       finds: p.finds,
       painted: Math.round(p.painted * 100),
+      ready: !!p.ready,
     })),
     phaseDeadline: room.phaseDeadline,
     seek: s && {
@@ -106,6 +108,8 @@ function publicState(room) {
       seekerId: s.seekerId,
       misses: s.misses,
       deadline: s.deadline,
+      failStreak: s.failStreak,
+      magnifier: s.magnifier,
     },
     teacherOnline: !!room.teacherSocketId,
     serverNow: Date.now(),
@@ -260,7 +264,9 @@ function disconnect(socket) {
     const p = room.players.get(d.playerId);
     if (p && p.socketId === socket.id) {
       p.connected = false;
-      broadcast(room);
+      const online = [...room.players.values()].filter((x) => x.connected);
+      if (room.phase === 'hiding' && online.length && online.every((x) => x.ready)) startSeeking(room);
+      else broadcast(room);
     }
   }
 }
@@ -349,9 +355,19 @@ function playerOf(socket) {
   return { room, p };
 }
 
-function playerMove(socket, { x, y }) {
+/** 그리기 완료 / 취소. 접속 중인 모든 학생이 완료하면 바로 찾기 시작 */
+function playerReady(socket, { ready }) {
   const { room, p } = playerOf(socket);
   if (!p || room.phase !== 'hiding') return;
+  p.ready = !!ready;
+  const online = [...room.players.values()].filter((x) => x.connected);
+  if (online.length && online.every((x) => x.ready)) startSeeking(room);
+  else broadcast(room);
+}
+
+function playerMove(socket, { x, y }) {
+  const { room, p } = playerOf(socket);
+  if (!p || room.phase !== 'hiding' || p.ready) return;
   const s = Shapes.get(p.shape);
   const cell = cellSize(room);
   x = Number(x); y = Number(y);
@@ -363,7 +379,7 @@ function playerMove(socket, { x, y }) {
 
 function playerPaint(socket, { pixels }) {
   const { room, p } = playerOf(socket);
-  if (!p || room.phase !== 'hiding') return;
+  if (!p || room.phase !== 'hiding' || p.ready) return;
   if (!Shapes.isValidPixels(p.shape, pixels)) return;
   p.pixels = pixels;
   const before = Math.round(p.painted * 100);
@@ -414,7 +430,7 @@ function startHiding(room) {
     Object.assign(p, randomSpot(room, p.shape));
     p.pixels = Shapes.blankPixels(p.shape);
     p.painted = 0;
-    p.found = false; p.foundBy = null; p.hasSought = false; p.finds = 0;
+    p.found = false; p.foundBy = null; p.hasSought = false; p.finds = 0; p.ready = false;
     if (p.socketId) io.to(p.socketId).emit('player:you', selfData(p));
   }
   setPhaseTimer(room, room.settings.hideSeconds * 1000, () => startSeeking(room));
@@ -423,7 +439,7 @@ function startHiding(room) {
 function startSeeking(room) {
   clearPhaseTimer(room);
   room.phase = 'seeking';
-  room.seek = { stage: 'choosing', seekerId: null, misses: 0, deadline: null };
+  room.seek = { stage: 'choosing', seekerId: null, misses: 0, deadline: null, failStreak: 0, magnifier: false };
   sendCharacters(room);
   nextSeeker(room);
   broadcast(room);
@@ -468,6 +484,9 @@ function startTurn(room, p) {
   room.seek.stage = 'turn';
   room.seek.seekerId = p.id;
   room.seek.misses = 0;
+  // 3명 연속으로 못 찾으면 이번 술래에게 돋보기 찬스
+  room.seek.magnifier = room.seek.failStreak >= MAGNIFIER_AFTER;
+  if (room.seek.magnifier) room.seek.failStreak = 0;
   resetTurnTimer(room);
 }
 
@@ -478,6 +497,7 @@ function resetTurnTimer(room) {
   room.timer = setTimeout(() => {
     if (room.phase === 'seeking' && room.seek.stage === 'turn') {
       io.to(room.code).emit('seek:result', { hit: false, timeout: true, seekerId: room.seek.seekerId });
+      room.seek.failStreak++;
       endTurn(room, 'timeout');
       broadcast(room);
     }
@@ -517,6 +537,7 @@ function seekClick(room, x, y) {
     target.found = true;
     target.foundBy = seeker ? seeker.id : null;
     if (seeker) seeker.finds++;
+    room.seek.failStreak = 0;
     io.to(room.code).emit('seek:result', { hit: true, x, y, foundId: target.id, seekerId: room.seek.seekerId });
     const stillHidden = [...room.players.values()].some((p) => !p.found && p.id !== room.seek.seekerId);
     if (!stillHidden) endTurn(room);
@@ -525,7 +546,10 @@ function seekClick(room, x, y) {
     room.seek.misses++;
     const out = room.seek.misses >= room.settings.missesAllowed;
     io.to(room.code).emit('seek:result', { hit: false, x, y, seekerId: room.seek.seekerId, turnOver: out });
-    if (out) endTurn(room);
+    if (out) {
+      room.seek.failStreak++;
+      endTurn(room);
+    }
   }
   broadcast(room);
   return {};
@@ -549,7 +573,7 @@ function resetToLobby(room) {
   for (const p of room.players.values()) {
     p.pixels = Shapes.blankPixels(p.shape);
     p.painted = 0;
-    p.found = false; p.foundBy = null; p.hasSought = false; p.finds = 0;
+    p.found = false; p.foundBy = null; p.hasSought = false; p.finds = 0; p.ready = false;
   }
   // 접속이 끊긴 학생은 새 판에서 정리한다
   for (const [id, p] of room.players) if (!p.connected) room.players.delete(id);
@@ -561,5 +585,5 @@ function getRoom(code) {
 
 module.exports = {
   init, createRoom, teacherRejoin, playerJoin, disconnect, teacherAction,
-  playerMove, playerPaint, playerSeekClick, playerCursor, getRoom, DEFAULT_SETTINGS,
+  playerReady, playerMove, playerPaint, playerSeekClick, playerCursor, getRoom, DEFAULT_SETTINGS,
 };

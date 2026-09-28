@@ -270,7 +270,7 @@
   function playerListHtml(withBars) {
     return `<ul class="plist">${state.players.map((p) => `
       <li class="${p.connected ? '' : 'muted'}">
-        <span class="nm">${MHS.esc(p.name)}${p.connected ? '' : ' (연결 끊김)'}</span>
+        <span class="nm">${withBars && p.ready ? '✅ ' : ''}${MHS.esc(p.name)}${p.connected ? '' : ' (연결 끊김)'}</span>
         ${withBars ? `<span class="bar" title="색칠 ${p.painted}%"><i style="width:${p.painted}%"></i></span><span class="small muted" style="width:36px;text-align:right">${p.painted}%</span>` : statusTag(p)}
         ${!withBars && p.finds ? `<span class="small muted">${p.finds}명</span>` : ''}
       </li>`).join('')}</ul>`;
@@ -286,7 +286,7 @@
       html = `
         <div class="panel">
           <h3>학생들이 숨는 중이에요</h3>
-          <p class="muted small" style="margin:4px 0 12px">시간이 끝나면 자동으로 찾기가 시작돼요.</p>
+          <p class="muted small" style="margin:4px 0 12px">그리기 완료 <b>${state.players.filter((p) => p.connected && p.ready).length} / ${state.players.filter((p) => p.connected).length}명</b> · 모두 완료하거나 시간이 끝나면 찾기가 시작돼요.</p>
           <div class="row">
             <button class="btn sm" data-act="addTime">+1분</button>
             <button class="btn sm primary" data-act="endHiding">지금 찾기 시작</button>
@@ -303,6 +303,7 @@
       if (s.stage === 'turn') {
         top = `<div class="label-sm">지금 술래</div>
           <div class="roulette" style="font-size:28px;margin:0">${MHS.esc(seeker ? seeker.name : '')}</div>
+          ${s.magnifier ? '<div class="tag seeker" style="display:inline-block;margin-bottom:6px">🔎 돋보기 찬스</div>' : ''}
           <div class="muted small">남은 기회 ${state.settings.missesAllowed - s.misses}번 · 이번 차례 남은 시간 <b id="turnLeft"></b></div>
           <div class="row" style="margin-top:10px">
             <button class="btn sm" data-act="skipTurn">차례 넘기기</button>
@@ -415,7 +416,7 @@
       else {
         const s = state.seek;
         const seeker = byId.get(s.seekerId);
-        if (s.stage === 'turn') banner.textContent = `🔍 ${seeker ? seeker.name : ''} 술래가 찾는 중 · 아직 숨은 친구 ${state.players.filter((p) => !p.found).length}명`;
+        if (s.stage === 'turn') banner.textContent = `${s.magnifier ? '🔎 돋보기 찬스! ' : '🔍 '}${seeker ? seeker.name : ''} 술래가 찾는 중 · 아직 숨은 친구 ${state.players.filter((p) => !p.found).length}명`;
         else if (s.stage === 'choosing') banner.textContent = '다음 술래를 정하는 중…';
         else banner.textContent = '차례 교대!';
       }
@@ -424,7 +425,10 @@
     const { view, ctx } = MHS.drawScene(field, painting, list, state.cell, { outline, labels });
     lastView = view;
     markers.draw(ctx, view);
-    if (state.phase === 'seeking' && state.seek.stage === 'turn') Views.drawCursor(ctx, view, cursor);
+    if (state.phase === 'seeking' && state.seek.stage === 'turn') {
+      if (state.seek.magnifier) MHS.drawLens(field, painting, list, state.cell, view, cursor);
+      Views.drawCursor(ctx, view, cursor);
+    }
   }
   requestAnimationFrame(frame);
 

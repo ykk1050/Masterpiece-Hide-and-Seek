@@ -253,6 +253,42 @@ const MHS = (() => {
     return { view, ctx };
   }
 
+  /** 돋보기: 커서(c, 월드 좌표) 주변을 zoom 배로 확대한 원을 그린다 */
+  const LENS = { zoom: 2.5, radius: 90 };
+  function drawLens(canvas, painting, chars, cell, view, c) {
+    if (!c) return;
+    const ctx = canvas.getContext('2d');
+    const R = LENS.radius * view.dpr;
+    const sx = view.ox + c.x * view.scale, sy = view.oy + c.y * view.scale;
+    const k = view.scale * LENS.zoom;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    ctx.arc(sx, sy, R, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#111';
+    ctx.fillRect(sx - R, sy - R, R * 2, R * 2);
+    ctx.setTransform(k, 0, 0, k, sx - c.x * k, sy - c.y * k);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(painting.img, 0, 0, painting.w, painting.h);
+    for (const ch of chars) {
+      const s = Shapes.get(ch.shape);
+      ctx.drawImage(charCanvas(ch), ch.x, ch.y, s.cols * cell, s.rows * cell);
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    ctx.arc(sx, sy, R, 0, Math.PI * 2);
+    ctx.lineWidth = 6 * view.dpr;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.stroke();
+    ctx.lineWidth = 3 * view.dpr;
+    ctx.strokeStyle = '#f2c14e';
+    ctx.stroke();
+    ctx.restore();
+  }
+
   /* ---------- 기타 ---------- */
 
   function toast(msg, kind) {
@@ -296,7 +332,7 @@ const MHS = (() => {
   return {
     syncTime, now, remaining, fmtTime,
     loadPainting, sampleAvg, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, similarity,
-    charCanvas, outlinePath, shapePreview, fitCanvas, toWorld, drawScene,
+    charCanvas, outlinePath, shapePreview, fitCanvas, toWorld, drawScene, drawLens, LENS,
     toast, esc, josa, paintingCaption, blockZoom,
   };
 })();

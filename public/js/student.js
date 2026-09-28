@@ -121,6 +121,16 @@
     }
   }
 
+  const myPlayer = () => (state && me && state.players.find((p) => p.id === me.id)) || {};
+  const amReady = () => state && state.phase === 'hiding' && !!myPlayer().ready;
+  const hasLens = () => state && state.phase === 'seeking' && state.seek && state.seek.stage === 'turn' && state.seek.magnifier;
+
+  $('#readyBtn').onclick = () => {
+    const ready = !amReady();
+    if (ready) socket.emit('player:paint', { pixels: editor.pixels() }); // 마지막 색칠 먼저 보내기
+    socket.emit('player:ready', { ready });
+  };
+
   const isSeeker = () => state && me && state.phase === 'seeking' && state.seek && state.seek.seekerId === me.id;
 
   /* ---------- 화면 전환 ---------- */
@@ -157,6 +167,16 @@
       }
     }
     if (phase === 'hiding') {
+      const ready = amReady();
+      const online = state.players.filter((p) => p.connected);
+      $('#readyBtn').textContent = ready ? '✏️ 다시 그리기' : '✅ 그리기 완료';
+      $('#readyBtn').classList.toggle('primary', !ready);
+      $('#readyInfo').textContent = `완료한 친구 ${online.filter((p) => p.ready).length} / ${online.length}명 · 모두 완료하면 바로 찾기가 시작돼요`;
+      $('#paintPanel').style.opacity = '';
+      document.querySelectorAll('#paintPanel .tools, #paintPanel .sizes, #paintPanel .color-row, #paintPanel .swatches, #paintPanel .editor-wrap').forEach((el) => {
+        el.style.opacity = ready ? 0.45 : '';
+        el.style.pointerEvents = ready ? 'none' : '';
+      });
       $('#paintTip').textContent = state.settings.allowEyedropper
         ? '💧 스포이드로 그림에서 색을 뽑을 수 있어요. 그래도 비슷한 색을 직접 만들어 보면 더 재미있어요!'
         : '🎨 이번 판은 스포이드로 그림 색을 뽑을 수 없어요. 밝게·어둡게·따뜻하게 버튼으로 색을 맞춰 보세요.';
@@ -171,7 +191,7 @@
     const mine = state.players.find((p) => p.id === me.id) || {};
     let html = '';
     if (s.stage === 'turn' && isSeeker()) {
-      html = `<div class="label-sm">내 차례!</div><h3>숨은 친구를 찾아 클릭하세요 🔍</h3>
+      html = `<div class="label-sm">내 차례!</div><h3>숨은 친구를 찾아 클릭하세요 🔍</h3>${s.magnifier ? `<div class="tag seeker" style="display:inline-block;margin-top:6px">🔎 돋보기 찬스 (${MHS.LENS.zoom}배)</div>` : ''}
         <p class="muted small" style="margin:6px 0 0">남은 기회 <b>${state.settings.missesAllowed - s.misses}번</b> · 남은 시간 <b id="turnLeft"></b><br>찾으면 계속, 놓치면 다른 친구에게 차례가 넘어가요.</p>`;
     } else if (s.stage === 'turn') {
       html = `<div class="label-sm">지금 술래</div><h3>${MHS.esc(seeker ? seeker.name : '')}</h3>
@@ -200,6 +220,7 @@
   let lastPaintSent = 0, paintTimer = null;
   const editor = new PaintEditor($('#editor'), {
     getPainting: () => painting,
+    isLocked: () => amReady(),
     getMe: () => me,
     getCell: () => (state ? state.cell : 2.6),
     canPickPainting: () => state && state.settings.allowEyedropper,
@@ -302,6 +323,7 @@
     const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
     if (d && document.activeElement.tagName !== 'INPUT') {
       e.preventDefault();
+      if (amReady()) return;
       moveMe(me.x + d[0], me.y + d[1], true);
     }
   });
@@ -336,6 +358,7 @@
     if (!state || !me || !painting || !lastView) return;
     const w = MHS.toWorld(lastView, field, e);
     if (state.phase === 'hiding') {
+      if (amReady()) return MHS.toast('그리기 완료 상태예요. 고치려면 [다시 그리기]를 누르세요.');
       field.setPointerCapture(e.pointerId);
       const { w: cw, h: ch } = charSize();
       const inside = w.x >= me.x && w.x <= me.x + cw && w.y >= me.y && w.y <= me.y + ch;
@@ -393,7 +416,7 @@
       list = [{ ...me }];
       const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 250);
       if (!drag) outline[me.id] = `rgba(255, 209, 102, ${pulse.toFixed(2)})`;
-      banner.textContent = '🎨 자리를 잡고 그 자리 그림과 똑같이 색칠하세요!';
+      banner.textContent = amReady() ? '✅ 그리기 완료! 친구들을 기다리는 중…' : '🎨 자리를 잡고 그 자리 그림과 똑같이 색칠하세요!';
       banner.classList.remove('me');
       hint.textContent = '그림을 누르거나 끌어서 캐릭터를 옮겨요 · 방향키로 한 칸씩 옮길 수 있어요';
       editor.render();
@@ -417,8 +440,8 @@
         banner.textContent = '🏁 모두 공개! 노란 테두리는 끝까지 숨은 친구예요';
         hint.textContent = '';
       } else if (isSeeker() && s.stage === 'turn') {
-        banner.textContent = '🔍 내가 술래! 숨은 친구를 찾아 클릭하세요';
-        hint.textContent = '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!';
+        banner.textContent = s.magnifier ? `🔎 돋보기 찬스! ${MHS.LENS.zoom}배로 보며 찾아보세요` : '🔍 내가 술래! 숨은 친구를 찾아 클릭하세요';
+        hint.textContent = s.magnifier ? '3명 연속으로 못 찾아서 돋보기가 생겼어요. 마우스를 움직여 살펴보세요!' : '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!';
       } else {
         const seeker = byId.get(s.seekerId);
         banner.textContent = s.stage === 'turn' ? `🔍 ${seeker ? seeker.name : ''} 술래가 찾는 중…` : '다음 술래를 정하는 중…';
@@ -429,7 +452,10 @@
     const { view, ctx } = MHS.drawScene(field, painting, list, state.cell, { outline, labels });
     lastView = view;
     markers.draw(ctx, view);
-    if (state.phase === 'seeking' && state.seek.stage === 'turn') Views.drawCursor(ctx, view, cursor);
+    if (state.phase === 'seeking' && state.seek.stage === 'turn') {
+      if (hasLens()) MHS.drawLens(field, painting, list, state.cell, view, cursor);
+      Views.drawCursor(ctx, view, cursor);
+    }
   }
   requestAnimationFrame(frame);
 
