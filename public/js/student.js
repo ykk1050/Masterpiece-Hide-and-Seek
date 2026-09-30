@@ -299,9 +299,12 @@
     editor.color = hex;
     $('#colorInput').value = '#' + hex;
     $('#swatchNow').style.background = '#' + hex;
+    $('#colorChipSwatch').style.background = '#' + hex;
     if (editor.tool === 'eraser') setTool('brush');
   }
   $('#colorInput').addEventListener('input', (e) => setColor(e.target.value.slice(1)));
+  // 색칠 창 아래의 '현재 색'을 누르면 색 고르기 창 열기
+  $('#colorChip').onclick = () => $('#colorInput').click();
 
   document.querySelectorAll('[data-adj]').forEach((b) => {
     b.onclick = () => {
