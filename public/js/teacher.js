@@ -19,7 +19,7 @@
   const settings = {
     hideSeconds: 300, turnSeconds: 40, missesAllowed: 1,
     seekerMode: 'random', charSize: 'medium', allowEyedropper: true,
-    seekRounds: 1, teacherPlays: false,
+    seekRounds: 1, teacherPlays: false, magnifierEnabled: true, magnifierAfter: 3,
   };
   let teacherPlayToken = null;
 
@@ -96,6 +96,9 @@
     settings.allowEyedropper = $('#sEyedrop').checked;
     settings.seekRounds = Number($('#sRounds').value);
     settings.teacherPlays = $('#sTeacherPlays').checked;
+    settings.magnifierEnabled = $('#sLens').checked;
+    settings.magnifierAfter = Number($('#sLensAfter').value);
+    $('#sLensAfter').disabled = !settings.magnifierEnabled;
   }
 
   function writeSettingsForm(s) {
@@ -105,6 +108,9 @@
     $('#sEyedrop').checked = s.allowEyedropper;
     $('#sRounds').value = s.seekRounds;
     $('#sTeacherPlays').checked = s.teacherPlays;
+    $('#sLens').checked = s.magnifierEnabled;
+    $('#sLensAfter').value = s.magnifierAfter;
+    $('#sLensAfter').disabled = !s.magnifierEnabled;
     document.querySelectorAll('.seg[data-setting]').forEach((seg) => {
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === s[seg.dataset.setting]));
     });
@@ -119,7 +125,7 @@
       pushSettings();
     });
   });
-  ['#sHide', '#sTurn', '#sMiss', '#sEyedrop', '#sRounds', '#sTeacherPlays'].forEach((id) => $(id).addEventListener('change', pushSettings));
+  ['#sHide', '#sTurn', '#sMiss', '#sEyedrop', '#sRounds', '#sTeacherPlays', '#sLens', '#sLensAfter'].forEach((id) => $(id).addEventListener('change', pushSettings));
 
   function pushSettings() {
     readSettingsForm();
@@ -338,6 +344,7 @@
       } else {
         top = '<div class="label-sm">차례 교대</div><div class="muted">다음 술래를 준비하고 있어요<span class="dots"></span></div>';
       }
+      if (s.lensUnlocked && s.stage !== 'turn') top += '<div class="muted small" style="margin-top:8px">🔎 돋보기 찬스가 켜져 있어요 (누군가 찾을 때까지)</div>';
       if (state.settings.seekRounds > 1) top += `<div class="muted small" style="margin-top:8px">술래 ${s.round} / ${state.settings.seekRounds}바퀴째</div>`;
       html = `
         <div class="panel">${top}</div>

@@ -76,6 +76,18 @@
               <span class="muted small">켜면 대기실에 선생님용 참여 버튼이 생겨요. 새 탭이나 다른 기기에서 학생처럼 참여해요.</span>
             </div>
             <div class="field">
+              <span class="label">돋보기 찬스</span>
+              <label class="switch"><input type="checkbox" id="sLens" checked> 돋보기 찬스 사용</label>
+              <div class="row" style="margin-top:4px">
+                <select class="input" id="sLensAfter" style="flex:1">
+                  <option value="1">1번 연속 실패하면</option><option value="2">2번 연속 실패하면</option>
+                  <option value="3" selected>3번 연속 실패하면</option><option value="4">4번 연속 실패하면</option>
+                  <option value="5">5번 연속 실패하면</option>
+                </select>
+              </div>
+              <span class="muted small">술래가 정한 횟수만큼 연속으로 못 찾으면 돋보기(2.5배)가 생기고, 누군가 찾을 때까지 다음 술래들도 계속 쓸 수 있어요.</span>
+            </div>
+            <div class="field">
               <span class="label">색 고르기 도움</span>
               <label class="switch"><input type="checkbox" id="sEyedrop" checked> 그림에서 색 뽑기(스포이드) 허용</label>
               <span class="muted small">끄면 학생이 직접 색을 섞어 맞춰야 해요.</span>

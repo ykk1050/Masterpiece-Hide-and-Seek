@@ -21,10 +21,11 @@ const DEFAULT_SETTINGS = {
   teacherClick: false,
   seekRounds: 1, // 술래를 몇 바퀴 돌지
   teacherPlays: false, // 선생님도 캐릭터로 참여
+  magnifierEnabled: true, // 돋보기 찬스 사용
+  magnifierAfter: 3, // 몇 번 연속 실패하면 돋보기가 생기는지
 };
 
 const HIT_TOLERANCE = 0.6; // 칸 단위 클릭 여유
-const MAGNIFIER_AFTER = 3; // 연속 실패 횟수
 const ROULETTE_MS = 3000;
 const BETWEEN_MS = 2500;
 const ROOM_TTL_MS = 4 * 60 * 60 * 1000;
@@ -71,6 +72,8 @@ function sanitizeSettings(input, base) {
   if ('teacherClick' in input) s.teacherClick = !!input.teacherClick;
   if ('seekRounds' in input) s.seekRounds = clampInt(input.seekRounds, 1, 5, s.seekRounds);
   if ('teacherPlays' in input) s.teacherPlays = !!input.teacherPlays;
+  if ('magnifierEnabled' in input) s.magnifierEnabled = !!input.magnifierEnabled;
+  if ('magnifierAfter' in input) s.magnifierAfter = clampInt(input.magnifierAfter, 1, 10, s.magnifierAfter);
   return s;
 }
 
@@ -116,6 +119,7 @@ function publicState(room) {
       deadline: s.deadline,
       failStreak: s.failStreak,
       magnifier: s.magnifier,
+      lensUnlocked: s.lensUnlocked,
       round: s.round,
     },
     teacherOnline: !!room.teacherSocketId,
@@ -482,7 +486,7 @@ function startHiding(room) {
 function startSeeking(room) {
   clearPhaseTimer(room);
   room.phase = 'seeking';
-  room.seek = { stage: 'choosing', seekerId: null, misses: 0, deadline: null, failStreak: 0, magnifier: false, round: 1 };
+  room.seek = { stage: 'choosing', seekerId: null, misses: 0, deadline: null, failStreak: 0, magnifier: false, lensUnlocked: false, round: 1 };
   sendCharacters(room);
   nextSeeker(room);
   broadcast(room);
@@ -539,9 +543,8 @@ function startTurn(room, p) {
   room.seek.stage = 'turn';
   room.seek.seekerId = p.id;
   room.seek.misses = 0;
-  // 3명 연속으로 못 찾으면 이번 술래에게 돋보기 찬스
-  room.seek.magnifier = room.seek.failStreak >= MAGNIFIER_AFTER;
-  if (room.seek.magnifier) room.seek.failStreak = 0;
+  // 정한 횟수만큼 연속으로 못 찾으면 돋보기가 생기고, 누군가 찾을 때까지 계속 유지
+  room.seek.magnifier = room.settings.magnifierEnabled && room.seek.lensUnlocked;
   resetTurnTimer(room);
 }
 
@@ -552,11 +555,17 @@ function resetTurnTimer(room) {
   room.timer = setTimeout(() => {
     if (room.phase === 'seeking' && room.seek.stage === 'turn') {
       io.to(room.code).emit('seek:result', { hit: false, timeout: true, seekerId: room.seek.seekerId });
-      room.seek.failStreak++;
+      addFail(room);
       endTurn(room, 'timeout');
       broadcast(room);
     }
   }, ms);
+}
+
+/** 술래 차례가 실패로 끝남 */
+function addFail(room) {
+  room.seek.failStreak++;
+  if (room.settings.magnifierEnabled && room.seek.failStreak >= room.settings.magnifierAfter) room.seek.lensUnlocked = true;
 }
 
 function endTurn(room) {
@@ -597,7 +606,10 @@ function seekClick(room, x, y) {
     target.found = true;
     target.foundBy = seeker ? seeker.id : null;
     if (seeker) seeker.finds++;
+    // 찾기 성공 → 돋보기 사라지고 연속 실패 횟수도 처음부터
     room.seek.failStreak = 0;
+    room.seek.lensUnlocked = false;
+    room.seek.magnifier = false;
     io.to(room.code).emit('seek:result', { hit: true, x, y, foundId: target.id, seekerId: room.seek.seekerId });
     const stillHidden = [...room.players.values()].some((p) => !p.found && p.id !== room.seek.seekerId);
     if (!stillHidden) endTurn(room);
@@ -607,7 +619,7 @@ function seekClick(room, x, y) {
     const out = room.seek.misses >= room.settings.missesAllowed;
     io.to(room.code).emit('seek:result', { hit: false, x, y, seekerId: room.seek.seekerId, turnOver: out });
     if (out) {
-      room.seek.failStreak++;
+      addFail(room);
       endTurn(room);
     }
   }

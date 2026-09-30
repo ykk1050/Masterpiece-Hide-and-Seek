@@ -580,7 +580,7 @@
         hint.textContent = '';
       } else if (isSeeker() && s.stage === 'turn') {
         banner.textContent = s.magnifier ? `🔎 돋보기 찬스! ${MHS.LENS.zoom}배로 보며 찾아보세요` : '🔍 내가 술래! 숨은 친구를 찾아 클릭하세요';
-        hint.textContent = (isTouch ? '👆 한 번 탭: 살펴보기 · 두 번 탭: 선택  ' : '') + (s.magnifier ? '3명 연속으로 못 찾아서 돋보기가 생겼어요. 마우스를 움직여 살펴보세요!' : '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!');
+        hint.textContent = (isTouch ? '👆 한 번 탭: 살펴보기 · 두 번 탭: 선택  ' : '') + (s.magnifier ? `${state.settings.magnifierAfter}번 연속으로 못 찾아서 돋보기가 생겼어요. 누군가 찾을 때까지 계속 쓸 수 있어요!` : '그림은 확대할 수 없어요. 눈을 크게 뜨고 찾아보세요!');
       } else {
         const seeker = byId.get(s.seekerId);
         banner.textContent = s.stage === 'turn' ? `🔍 ${seeker ? seeker.name : ''} 술래가 찾는 중…` : '다음 술래를 정하는 중…';
