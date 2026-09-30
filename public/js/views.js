@@ -96,6 +96,82 @@ const Views = (() => {
     }
   }
 
+  /**
+   * 술래 선택: 같은 곳을 빠르게 두 번 누르면(더블클릭·더블탭) "여기 맞나요?" 확인 창을 연다.
+   * 두 번째 누름에서 손을 떼는 동작이 창의 버튼을 눌러 버리지 않도록
+   * 창을 누른 곳에서 먼 쪽에 띄우고, 뜬 직후 잠깐은 버튼이 눌리지 않게 한다.
+   */
+  class PickConfirm {
+    constructor(onYes) {
+      this.onYes = onYes;
+      this.at = null;
+      this.last = null;
+      this.openedAt = 0;
+      this.GUARD_MS = 600;
+      this.el = document.createElement('div');
+      this.el.className = 'overlay hidden';
+      this.el.style.background = 'rgba(20,16,12,.25)';
+      this.el.innerHTML = `<div class="card">
+          <h3 style="margin-bottom:6px">이 위치에 친구가 숨어 있다고 생각하나요?</h3>
+          <p class="muted small" style="margin:0 0 14px">노란 동그라미가 있는 곳을 선택해요.</p>
+          <div class="row" style="justify-content:center">
+            <button class="btn big" data-c="no">아니요, 다시 볼래요</button>
+            <button class="btn big primary" data-c="yes">네, 여기예요!</button>
+          </div></div>`;
+      document.body.appendChild(this.el);
+      const ready = () => performance.now() - this.openedAt >= this.GUARD_MS;
+      this.el.querySelector('[data-c=yes]').onclick = () => {
+        if (!ready()) return;
+        const w = this.at;
+        this.close();
+        if (w) this.onYes(w);
+      };
+      this.el.querySelector('[data-c=no]').onclick = () => { if (ready()) this.close(); };
+    }
+    get isOpen() { return !!this.at; }
+    /** 필드를 누를 때마다 호출. 두 번째로 누른 것이면 확인 창을 연다 */
+    press(e, w) {
+      if (this.at) return;
+      const touch = e.pointerType === 'touch';
+      const now = performance.now();
+      const last = this.last;
+      const near = last && Math.hypot(e.clientX - last.cx, e.clientY - last.cy) < (touch ? 40 : 24);
+      if (last && near && now - last.t < (touch ? 350 : 450)) {
+        this.last = null;
+        e.preventDefault(); // 누른 뒤 따라오는 가짜 클릭 막기
+        this.open(w, e.clientY);
+      } else {
+        this.last = { t: now, cx: e.clientX, cy: e.clientY };
+      }
+    }
+    open(w, clientY) {
+      this.at = w;
+      this.openedAt = performance.now();
+      const low = clientY > window.innerHeight / 2;
+      this.el.style.alignItems = low ? 'start' : 'end';
+      this.el.style.paddingTop = low ? '72px' : '';
+      this.el.style.paddingBottom = low ? '' : '24px';
+      this.el.style.pointerEvents = 'none';
+      clearTimeout(this.guardTimer);
+      this.guardTimer = setTimeout(() => { this.el.style.pointerEvents = ''; }, this.GUARD_MS);
+      this.el.classList.remove('hidden');
+    }
+    close() {
+      this.at = null;
+      this.el.classList.add('hidden');
+    }
+    /** 선택하려는 자리에 노란 동그라미 */
+    draw(ctx, view) {
+      if (!this.at) return;
+      const k = view.dpr / view.scale;
+      ctx.lineWidth = 4 * k;
+      ctx.strokeStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(this.at.x, this.at.y, 16 * k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
   function drawCursor(ctx, view, c) {
     if (!c) return;
     const k = view.dpr / view.scale;
@@ -174,5 +250,5 @@ const Views = (() => {
       <p class="muted small" style="margin:10px 0 0">%는 캐릭터 색이 그 자리 명화의 색과 얼마나 비슷한지 나타내요.</p>`;
   }
 
-  return { avatar, Roulette, Markers, drawCursor, resultCards, summaryHtml };
+  return { avatar, Roulette, Markers, PickConfirm, drawCursor, resultCards, summaryHtml };
 })();

@@ -333,7 +333,7 @@
           <div class="row" style="margin-top:10px">
             <button class="btn sm" data-act="skipTurn">차례 넘기기</button>
           </div>
-          <label class="switch" style="margin-top:10px"><input type="checkbox" id="teacherClickToggle" ${state.settings.teacherClick ? 'checked' : ''}> 이 화면에서 대신 클릭하기 (프로젝터 앞에서 찾을 때)</label>`;
+          <label class="switch" style="margin-top:10px"><input type="checkbox" id="teacherClickToggle" ${state.settings.teacherClick ? 'checked' : ''}> 이 화면에서 대신 고르기 (프로젝터 앞에서 찾을 때 · 더블클릭)</label>`;
       } else if (s.stage === 'choosing' && state.settings.seekerMode === 'teacher') {
         const eligible = state.players.filter((p) => !p.hasSought && p.connected);
         top = `<div class="label-sm">다음 술래를 골라 주세요</div>
@@ -455,14 +455,17 @@
     if (state.phase === 'seeking' && state.seek.stage === 'turn') {
       if (state.seek.magnifier) MHS.drawLens(field, painting, list, state.cell, view, cursor);
       Views.drawCursor(ctx, view, cursor);
+      pick.draw(ctx, view);
     }
   }
   requestAnimationFrame(frame);
 
+  const canTeacherClick = () => state && state.phase === 'seeking' && state.settings.teacherClick && state.seek.stage === 'turn';
+  const pick = new Views.PickConfirm((w) => { if (canTeacherClick()) teacherAct('seekClick', w); });
+  socket.on('room:state', () => { if (pick.isOpen && !canTeacherClick()) pick.close(); });
   field.addEventListener('pointerdown', (e) => {
-    if (!state || state.phase !== 'seeking' || !state.settings.teacherClick || state.seek.stage !== 'turn' || !lastView) return;
-    const w = MHS.toWorld(lastView, field, e);
-    teacherAct('seekClick', w);
+    if (!canTeacherClick() || !lastView) return;
+    pick.press(e, MHS.toWorld(lastView, field, e)); // 더블클릭 → 확인 창
   });
 
   /* ---------- 시작 ---------- */
