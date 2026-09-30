@@ -64,6 +64,18 @@
               </div>
             </div>
             <div class="field">
+              <label for="sRounds">술래 바퀴 수</label>
+              <select class="input" id="sRounds">
+                <option value="1" selected>1바퀴 (모두 한 번씩)</option><option value="2">2바퀴</option><option value="3">3바퀴</option><option value="5">5바퀴</option>
+              </select>
+              <span class="muted small">모두 술래를 한 번씩 했는데 아직 숨은 친구가 있으면, 정한 바퀴 수만큼 다시 돌아요.</span>
+            </div>
+            <div class="field">
+              <span class="label">선생님 참여</span>
+              <label class="switch"><input type="checkbox" id="sTeacherPlays"> 선생님도 캐릭터로 참여하기</label>
+              <span class="muted small">켜면 대기실에 선생님용 참여 버튼이 생겨요. 새 탭이나 다른 기기에서 학생처럼 참여해요.</span>
+            </div>
+            <div class="field">
               <span class="label">색 고르기 도움</span>
               <label class="switch"><input type="checkbox" id="sEyedrop" checked> 그림에서 색 뽑기(스포이드) 허용</label>
               <span class="muted small">끄면 학생이 직접 색을 섞어 맞춰야 해요.</span>
@@ -94,6 +106,14 @@
             </div>
             <div class="players" id="lobbyPlayers"></div>
           </div>
+          <div class="card hidden" id="teacherJoinCard">
+            <h3>🧑‍🏫 선생님도 참여해요</h3>
+            <p class="muted small" style="margin:4px 0 12px">이 화면은 교실 화면에 띄워 두고, 선생님 캐릭터는 <b>새 탭이나 다른 기기</b>에서 조작하세요. 이 화면에서 숨으면 학생들에게 위치가 보여요.</p>
+            <div class="row">
+              <a class="btn primary" id="teacherJoinLink" target="_blank" rel="opener">내 캐릭터로 참여하기 ↗</a>
+              <button class="btn" id="teacherJoinCopy">링크 복사</button>
+            </div>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:20px">
           <div class="card">
@@ -115,8 +135,8 @@
   <section class="hidden" id="game">
     <div class="game" id="gameLayout">
       <div class="stage">
-        <canvas class="field" id="field"></canvas>
-        <div class="banner" id="banner"></div>
+        <div class="stage-bar"><span class="banner" id="banner"></span></div>
+        <div class="stage-canvas"><canvas class="field" id="field"></canvas></div>
       </div>
       <aside class="side" id="side"></aside>
     </div>

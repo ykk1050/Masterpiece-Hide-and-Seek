@@ -17,8 +17,10 @@ const DEFAULT_SETTINGS = {
   missesAllowed: 1,
   seekerMode: 'random', // 'random' | 'teacher'
   allowEyedropper: true,
-  charSize: 'medium', // 'small' | 'medium' | 'large'
+  charSize: 'medium', // 'small' | 'medium' | 'large' | 'xlarge'
   teacherClick: false,
+  seekRounds: 1, // 술래를 몇 바퀴 돌지
+  teacherPlays: false, // 선생님도 캐릭터로 참여
 };
 
 const HIT_TOLERANCE = 0.6; // 칸 단위 클릭 여유
@@ -67,6 +69,8 @@ function sanitizeSettings(input, base) {
   if ('allowEyedropper' in input) s.allowEyedropper = !!input.allowEyedropper;
   if (Shapes.CELL_SIZES[input.charSize]) s.charSize = input.charSize;
   if ('teacherClick' in input) s.teacherClick = !!input.teacherClick;
+  if ('seekRounds' in input) s.seekRounds = clampInt(input.seekRounds, 1, 5, s.seekRounds);
+  if ('teacherPlays' in input) s.teacherPlays = !!input.teacherPlays;
   return s;
 }
 
@@ -97,7 +101,9 @@ function publicState(room) {
       connected: p.connected,
       found: p.found,
       foundBy: p.foundBy,
-      hasSought: p.hasSought,
+      hasSought: p.soughtCount >= currentRound(room), // 이번 바퀴에 술래를 했는지
+      soughtCount: p.soughtCount,
+      isTeacher: !!p.isTeacher,
       finds: p.finds,
       painted: Math.round(p.painted * 100),
       ready: !!p.ready,
@@ -110,10 +116,15 @@ function publicState(room) {
       deadline: s.deadline,
       failStreak: s.failStreak,
       magnifier: s.magnifier,
+      round: s.round,
     },
     teacherOnline: !!room.teacherSocketId,
     serverNow: Date.now(),
   };
+}
+
+function currentRound(room) {
+  return room.seek ? room.seek.round : 1;
 }
 
 function broadcast(room) {
@@ -128,6 +139,7 @@ function characterList(room) {
     shape: p.shape,
     x: p.x,
     y: p.y,
+    rot: p.rot,
     pixels: p.pixels,
     found: p.found,
   }));
@@ -141,7 +153,7 @@ function sendCharacters(room, target) {
 function sendMonitor(room, p) {
   if (room.monitor && room.teacherSocketId) {
     io.to(room.teacherSocketId).emit('monitor:char', {
-      id: p.id, shape: p.shape, x: p.x, y: p.y, pixels: p.pixels,
+      id: p.id, shape: p.shape, x: p.x, y: p.y, rot: p.rot, pixels: p.pixels,
     });
   }
 }
@@ -153,6 +165,7 @@ function createRoom(socket, { settings, painting }) {
   const room = {
     code,
     teacherToken: crypto.randomBytes(12).toString('hex'),
+    teacherPlayToken: crypto.randomBytes(12).toString('hex'), // 선생님이 학생 화면으로 참여할 때
     teacherSocketId: socket.id,
     settings: sanitizeSettings(settings),
     painting: null,
@@ -170,7 +183,7 @@ function createRoom(socket, { settings, painting }) {
   rooms.set(code, room);
   socket.join(code);
   socket.data = { role: 'teacher', code };
-  return { code, teacherToken: room.teacherToken, state: publicState(room) };
+  return { code, teacherToken: room.teacherToken, teacherPlayToken: room.teacherPlayToken, state: publicState(room) };
 }
 
 function applyPainting(room, painting) {
@@ -205,7 +218,7 @@ function teacherRejoin(socket, { code, teacherToken }) {
   socket.data = { role: 'teacher', code: room.code };
   broadcast(room);
   if (room.phase === 'seeking' || room.phase === 'results') sendCharacters(room, socket);
-  return { code: room.code, teacherToken, state: publicState(room) };
+  return { code: room.code, teacherToken, teacherPlayToken: room.teacherPlayToken, state: publicState(room) };
 }
 
 function randomSpot(room, shapeId) {
@@ -215,12 +228,16 @@ function randomSpot(room, shapeId) {
   return {
     x: Math.round(Math.random() * Math.max(0, room.world.w - w)),
     y: Math.round(Math.random() * Math.max(0, room.world.h - h)),
+    rot: 0,
   };
 }
 
-function playerJoin(socket, { code, name, shape, playerId }) {
+function playerJoin(socket, { code, name, shape, playerId, teacherPlayToken }) {
   const room = rooms.get(String(code || '').trim());
   if (!room) return { error: '방 번호를 다시 확인해 주세요.' };
+  const asTeacher = !!teacherPlayToken && teacherPlayToken === room.teacherPlayToken;
+  if (teacherPlayToken && !asTeacher) return { error: '선생님 참여 링크가 올바르지 않아요.' };
+  if (asTeacher && !room.settings.teacherPlays) return { error: '게임 설정에서 "선생님도 참여"를 켜 주세요.' };
 
   let player = playerId && room.players.get(playerId);
   if (!player && name) {
@@ -239,8 +256,9 @@ function playerJoin(socket, { code, name, shape, playerId }) {
       id: crypto.randomBytes(8).toString('hex'),
       name, shape,
       socketId: null, connected: false,
-      x: 0, y: 0, pixels: Shapes.blankPixels(shape), painted: 0,
-      found: false, foundBy: null, hasSought: false, finds: 0,
+      x: 0, y: 0, rot: 0, pixels: Shapes.blankPixels(shape), painted: 0,
+      found: false, foundBy: null, soughtCount: 0, finds: 0,
+      isTeacher: asTeacher,
     };
     if (room.phase === 'hiding') Object.assign(player, randomSpot(room, shape));
     room.players.set(player.id, player);
@@ -255,7 +273,7 @@ function playerJoin(socket, { code, name, shape, playerId }) {
 }
 
 function selfData(p) {
-  return { id: p.id, name: p.name, shape: p.shape, x: p.x, y: p.y, pixels: p.pixels };
+  return { id: p.id, name: p.name, shape: p.shape, x: p.x, y: p.y, rot: p.rot, pixels: p.pixels, isTeacher: !!p.isTeacher };
 }
 
 function disconnect(socket) {
@@ -379,15 +397,26 @@ function checkAllReady(room) {
   return true;
 }
 
-function playerMove(socket, { x, y }) {
+/** 대기실에서 캐릭터 모양 바꾸기 (다음 판을 시작하기 전) */
+function playerShape(socket, { shape }) {
+  const { room, p } = playerOf(socket);
+  if (!p) return { error: '방에 먼저 들어와 주세요.' };
+  if (room.phase !== 'lobby') return { error: '모양은 대기실에서만 바꿀 수 있어요.' };
+  if (!Shapes.DEFS[shape]) return { error: '알 수 없는 모양이에요.' };
+  p.shape = shape;
+  p.pixels = Shapes.blankPixels(shape);
+  p.painted = 0;
+  broadcast(room);
+  return { you: selfData(p) };
+}
+
+function playerMove(socket, { x, y, rot }) {
   const { room, p } = playerOf(socket);
   if (!p || room.phase !== 'hiding' || p.ready) return;
-  const s = Shapes.get(p.shape);
-  const cell = cellSize(room);
   x = Number(x); y = Number(y);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-  p.x = Math.max(0, Math.min(room.world.w - s.cols * cell, x));
-  p.y = Math.max(0, Math.min(room.world.h - s.rows * cell, y));
+  const next = { shape: p.shape, x, y, rot: rot === undefined ? p.rot : Shapes.normAngle(rot) };
+  Object.assign(p, Shapes.clampPos(next, cellSize(room), room.world), { rot: next.rot });
   sendMonitor(room, p);
 }
 
@@ -444,7 +473,7 @@ function startHiding(room) {
     Object.assign(p, randomSpot(room, p.shape));
     p.pixels = Shapes.blankPixels(p.shape);
     p.painted = 0;
-    p.found = false; p.foundBy = null; p.hasSought = false; p.finds = 0; p.ready = false;
+    p.found = false; p.foundBy = null; p.soughtCount = 0; p.finds = 0; p.ready = false;
     if (p.socketId) io.to(p.socketId).emit('player:you', selfData(p));
   }
   setPhaseTimer(room, room.settings.hideSeconds * 1000, () => startSeeking(room));
@@ -453,18 +482,30 @@ function startHiding(room) {
 function startSeeking(room) {
   clearPhaseTimer(room);
   room.phase = 'seeking';
-  room.seek = { stage: 'choosing', seekerId: null, misses: 0, deadline: null, failStreak: 0, magnifier: false };
+  room.seek = { stage: 'choosing', seekerId: null, misses: 0, deadline: null, failStreak: 0, magnifier: false, round: 1 };
   sendCharacters(room);
   nextSeeker(room);
   broadcast(room);
 }
 
-/** 아직 술래를 해 본 적 없는 접속 중인 학생 중, 자기 말고 숨은 친구가 남아 있는 학생 */
+/** 접속 중이고, 자기 말고 숨은 친구가 남아 있는 학생 */
+function canSeek(room, p) {
+  return p.connected && [...room.players.values()].some((h) => !h.found && h.id !== p.id);
+}
+
+/** 이번 바퀴에 아직 술래를 안 한 학생 */
 function eligibleSeekers(room) {
-  const hidden = [...room.players.values()].filter((p) => !p.found);
-  return [...room.players.values()].filter(
-    (p) => !p.hasSought && p.connected && hidden.some((h) => h.id !== p.id)
-  );
+  return [...room.players.values()].filter((p) => p.soughtCount < room.seek.round && canSeek(room, p));
+}
+
+/** 이번 바퀴에 술래할 사람이 없으면 다음 바퀴로 (설정한 바퀴 수까지). 술래할 사람이 있으면 true */
+function ensureEligible(room) {
+  while (!eligibleSeekers(room).length) {
+    const anyone = [...room.players.values()].some((p) => canSeek(room, p));
+    if (!anyone || room.seek.round >= room.settings.seekRounds) return false;
+    room.seek.round++;
+  }
+  return true;
 }
 
 function pickRandom(arr) {
@@ -472,8 +513,7 @@ function pickRandom(arr) {
 }
 
 function nextSeeker(room) {
-  const eligible = eligibleSeekers(room);
-  if (!eligible.length) return finish(room);
+  if (!ensureEligible(room)) return finish(room);
   room.seek.stage = 'choosing';
   room.seek.seekerId = null;
   room.seek.misses = 0;
@@ -495,7 +535,7 @@ function nextSeeker(room) {
 }
 
 function startTurn(room, p) {
-  p.hasSought = true;
+  p.soughtCount++;
   room.seek.stage = 'turn';
   room.seek.seekerId = p.id;
   room.seek.misses = 0;
@@ -535,8 +575,7 @@ function hitTest(room, x, y, seekerId) {
   const list = [...room.players.values()].reverse(); // 나중에 그려진(위에 있는) 캐릭터부터
   for (const p of list) {
     if (p.found || p.id === seekerId) continue;
-    const lx = (x - p.x) / cell, ly = (y - p.y) / cell;
-    if (Shapes.hit(p.shape, lx, ly, HIT_TOLERANCE)) return p;
+    if (Shapes.hitWorld(p, cell, x, y, HIT_TOLERANCE)) return p;
   }
   return null;
 }
@@ -549,7 +588,7 @@ function seekClick(room, x, y) {
   const target = hitTest(room, x, y, room.seek.seekerId);
   if (!target) {
     const cell = cellSize(room);
-    const onChar = (p) => Shapes.hit(p.shape, (x - p.x) / cell, (y - p.y) / cell, 0);
+    const onChar = (p) => Shapes.hitWorld(p, cell, x, y, 0);
     if (seeker && !seeker.found && onChar(seeker)) return { error: '여기는 내 캐릭터예요! 다른 곳을 찾아보세요.' };
     if ([...room.players.values()].some((p) => p.found && onChar(p))) return { error: '이미 찾은 친구예요.' };
   }
@@ -594,7 +633,7 @@ function resetToLobby(room) {
   for (const p of room.players.values()) {
     p.pixels = Shapes.blankPixels(p.shape);
     p.painted = 0;
-    p.found = false; p.foundBy = null; p.hasSought = false; p.finds = 0; p.ready = false;
+    p.found = false; p.foundBy = null; p.soughtCount = 0; p.finds = 0; p.ready = false;
   }
   // 접속이 끊긴 학생은 새 판에서 정리한다
   for (const [id, p] of room.players) if (!p.connected) room.players.delete(id);
@@ -606,5 +645,5 @@ function getRoom(code) {
 
 module.exports = {
   init, createRoom, teacherRejoin, playerJoin, disconnect, teacherAction,
-  playerReady, playerMove, playerPaint, playerSeekClick, playerCursor, getRoom, DEFAULT_SETTINGS,
+  playerReady, playerShape, playerMove, playerPaint, playerSeekClick, playerCursor, getRoom, DEFAULT_SETTINGS,
 };

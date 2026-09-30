@@ -46,6 +46,10 @@
         <div class="pv-big" id="waitAvatar"></div>
         <h2 class="section-title" id="waitTitle"></h2>
         <p class="muted">선생님이 게임을 시작하길 기다리고 있어요<span class="dots"></span></p>
+        <div style="max-width:420px;margin:16px auto 0">
+          <div class="label-sm">이번 판 캐릭터 모양 바꾸기</div>
+          <div class="shape-grid" id="waitShapeGrid"></div>
+        </div>
         <div style="max-width:520px;margin:20px auto 0">
           <div class="frame"><img id="waitImg" alt=""></div>
           <div class="caption" id="waitCaption"></div>
@@ -60,15 +64,23 @@
   <section class="hidden" id="game">
     <div class="game wide-side">
       <div class="stage">
-        <canvas class="field" id="field"></canvas>
-        <div class="banner" id="banner"></div>
-        <div class="hint" id="hint"></div>
+        <div class="stage-bar"><span class="banner" id="banner"></span><span class="hint" id="hint"></span></div>
+        <div class="stage-canvas"><canvas class="field" id="field"></canvas></div>
       </div>
       <aside class="side">
         <!-- 숨기: 색칠 도구 -->
         <div id="paintPanel" class="hidden" style="display:flex;flex-direction:column;gap:12px">
           <button class="btn big primary" id="readyBtn">✅ 그리기 완료</button>
           <div class="muted small" id="readyInfo" style="text-align:center;margin-top:-6px"></div>
+          <div>
+            <div class="label-sm">캐릭터 돌리기</div>
+            <div class="row" id="rotateRow">
+              <button class="btn sm" data-rot="-15">⟲ 왼쪽</button>
+              <button class="btn sm" data-rot="15">⟳ 오른쪽</button>
+              <button class="btn sm ghost" data-rot="0">똑바로</button>
+              <span class="muted small" id="rotInfo"></span>
+            </div>
+          </div>
           <div class="editor-wrap"><canvas id="editor"></canvas></div>
           <div class="row" style="justify-content:space-between">
             <button class="btn sm" id="peekBtn">👀 누르고 있으면 원래 그림 보기</button>

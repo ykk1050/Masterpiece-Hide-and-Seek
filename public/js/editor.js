@@ -53,24 +53,17 @@ class PaintEditor {
     const padC = (span - s.cols) / 2, padR = (span - s.rows) / 2;
     const me = this.opts.getMe();
     const cell = this.opts.getCell();
-    return {
-      s, W, span, cellPx, dpr, cell,
-      ox: padC * cellPx, oy: padR * cellPx,
-      wx0: me.x - padC * cell, wy0: me.y - padR * cell,
-    };
+    // 캐릭터는 똑바로 세워 두고, 캐릭터가 돌아간 만큼 뒤의 명화를 반대로 돌려서 보여 준다
+    return { s, W, span, cellPx, dpr, cell, me, ox: padC * cellPx, oy: padR * cellPx };
   }
 
   eventCell(e) {
     const L = this.layout();
     const rect = this.canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) * L.dpr, y = (e.clientY - rect.top) * L.dpr;
-    return {
-      c: Math.floor((x - L.ox) / L.cellPx),
-      r: Math.floor((y - L.oy) / L.cellPx),
-      wx: L.wx0 + (x / L.cellPx) * L.cell,
-      wy: L.wy0 + (y / L.cellPx) * L.cell,
-      L,
-    };
+    const c = (x - L.ox) / L.cellPx, r = (y - L.oy) / L.cellPx;
+    const w = Shapes.toWorld(L.me, L.cell, c, r);
+    return { c: Math.floor(c), r: Math.floor(r), wx: w.x, wy: w.y, L };
   }
 
   inMask(c, r) {
@@ -94,7 +87,7 @@ class PaintEditor {
   down(e) {
     e.preventDefault();
     if (this.opts.isLocked && this.opts.isLocked()) return;
-    this.canvas.setPointerCapture(e.pointerId);
+    try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 실패해도 계속 */ }
     const p = this.eventCell(e);
     this.hover = p;
     if (this.tool === 'picker') return this.pick(p);
@@ -206,18 +199,18 @@ class PaintEditor {
     ctx.fillStyle = '#1a1714';
     ctx.fillRect(0, 0, L.W, L.W);
 
-    // 캐릭터 주변 명화 (그림 밖으로 나간 부분은 잘라서)
-    const size = L.span * L.cell;
-    const sx0 = Math.max(0, L.wx0), sy0 = Math.max(0, L.wy0);
-    const sx1 = Math.min(painting.w, L.wx0 + size), sy1 = Math.min(painting.h, L.wy0 + size);
-    if (sx1 > sx0 && sy1 > sy0) {
-      const k = L.cellPx / L.cell;
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(painting.canvas, sx0, sy0, sx1 - sx0, sy1 - sy0,
-        (sx0 - L.wx0) * k, (sy0 - L.wy0) * k, (sx1 - sx0) * k, (sy1 - sy0) * k);
-    }
-
+    // 캐릭터 주변 명화: 캐릭터 중심을 편집 창의 캐릭터 중심에 맞추고 반대로 회전
     const { s, cellPx, ox, oy } = L;
+    const f = Shapes.frame(L.me, L.cell);
+    ctx.save();
+    ctx.translate(ox + (s.cols * cellPx) / 2, oy + (s.rows * cellPx) / 2);
+    ctx.rotate(-(L.me.rot || 0));
+    ctx.scale(cellPx / L.cell, cellPx / L.cell);
+    ctx.translate(-f.cx, -f.cy);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(painting.canvas, 0, 0);
+    ctx.restore();
+
     if (!this.peek) {
       for (let r = 0; r < s.rows; r++) {
         for (let c = 0; c < s.cols; c++) {

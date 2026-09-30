@@ -154,6 +154,54 @@
     return false;
   }
 
+  /*
+   * 회전: 캐릭터(ch = { shape, x, y, rot })는 (x, y)가 회전 전 왼쪽 위 모서리,
+   * rot(라디안)만큼 캐릭터 중심을 기준으로 돌아가 있다.
+   */
+  function frame(ch, cell) {
+    const s = get(ch.shape);
+    const w = s.cols * cell, h = s.rows * cell;
+    return { s, w, h, cx: ch.x + w / 2, cy: ch.y + h / 2, cos: Math.cos(ch.rot || 0), sin: Math.sin(ch.rot || 0) };
+  }
+
+  /** 월드 좌표 → 캐릭터 격자 좌표(칸 단위) */
+  function toLocal(ch, cell, px, py) {
+    const f = frame(ch, cell);
+    const dx = px - f.cx, dy = py - f.cy;
+    const lx = dx * f.cos + dy * f.sin, ly = -dx * f.sin + dy * f.cos;
+    return { c: (lx + f.w / 2) / cell, r: (ly + f.h / 2) / cell };
+  }
+
+  /** 캐릭터 격자 좌표(칸 단위) → 월드 좌표 */
+  function toWorld(ch, cell, c, r) {
+    const f = frame(ch, cell);
+    const ox = c * cell - f.w / 2, oy = r * cell - f.h / 2;
+    return { x: f.cx + ox * f.cos - oy * f.sin, y: f.cy + ox * f.sin + oy * f.cos };
+  }
+
+  function hitWorld(ch, cell, px, py, tol) {
+    const l = toLocal(ch, cell, px, py);
+    return hit(ch.shape, l.c, l.r, tol);
+  }
+
+  /** 돌아간 캐릭터 전체가 그림 안에 들어오도록 위치(x, y)를 맞춘다 */
+  function clampPos(ch, cell, world) {
+    const f = frame(ch, cell);
+    const hw = (f.w * Math.abs(f.cos) + f.h * Math.abs(f.sin)) / 2;
+    const hh = (f.w * Math.abs(f.sin) + f.h * Math.abs(f.cos)) / 2;
+    const cx = Math.max(hw, Math.min(world.w - hw, f.cx));
+    const cy = Math.max(hh, Math.min(world.h - hh, f.cy));
+    return { x: cx - f.w / 2, y: cy - f.h / 2 };
+  }
+
+  function normAngle(a) {
+    a = Number(a) || 0;
+    a %= Math.PI * 2;
+    if (a > Math.PI) a -= Math.PI * 2;
+    if (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
   /** 모든 칸을 흰색으로 채운 픽셀 문자열 (칸마다 6자리 hex) */
   function blankPixels(id) {
     const s = get(id);
@@ -176,5 +224,8 @@
     return s.count ? painted / s.count : 0;
   }
 
-  return { DEFS, ORDER, CELL_SIZES, WORLD_LONG_SIDE, get, hit, blankPixels, isValidPixels, paintedRatio };
+  return {
+    DEFS, ORDER, CELL_SIZES, WORLD_LONG_SIDE, get, hit, blankPixels, isValidPixels, paintedRatio,
+    frame, toLocal, toWorld, hitWorld, clampPos, normAngle,
+  };
 });

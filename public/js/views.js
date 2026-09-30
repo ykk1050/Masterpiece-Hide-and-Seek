@@ -130,7 +130,7 @@ const Views = (() => {
       }
       return cv;
     };
-    const original = make((c, r) => MHS.rgbToHex(MHS.sampleAvg(painting, ch.x + c * cell, ch.y + r * cell, cell, cell)));
+    const original = make((c, r) => MHS.rgbToHex(MHS.sampleCell(painting, ch, cell, c, r)));
     const mine = make((c, r) => ch.pixels.substr((r * s.cols + c) * 6, 6));
     return { original, mine };
   }

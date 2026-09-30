@@ -180,16 +180,21 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; margin: 0; letter-spac
 /* ---------- 게임 화면 (필드 + 사이드 패널) ---------- */
 .game { display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 56px); }
 .game.wide-side { grid-template-columns: 1fr 440px; }
-.stage { position: relative; background: var(--wall); overflow: hidden; }
-.stage canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
-.stage .banner {
-  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
-  padding: 8px 18px; border-radius: 999px; background: rgba(20,16,12,.85); color: #fff;
-  font-weight: 700; font-size: 15px; white-space: nowrap; pointer-events: none; z-index: 2;
-  box-shadow: 0 4px 14px rgba(0,0,0,.3); max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis;
+/* 필드: 위쪽 안내 줄 + 그림 영역 (안내가 그림을 가리지 않도록 분리) */
+.stage { position: relative; background: var(--wall); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.stage-bar {
+  flex: none; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 14px; background: #1b1815; border-bottom: 1px solid rgba(255,255,255,.08);
 }
-.stage .banner.me { background: var(--accent); }
-.stage .hint { position: absolute; left: 12px; bottom: 12px; color: #c8bca9; font-size: 13px; pointer-events: none; }
+.stage-bar .banner {
+  padding: 5px 14px; border-radius: 999px; background: rgba(255,255,255,.1); color: #fff;
+  font-weight: 700; font-size: 15px; max-width: 100%;
+}
+.stage-bar .banner:empty, .stage-bar .hint:empty { display: none; }
+.stage-bar .banner.me { background: var(--accent); }
+.stage-bar .hint { color: #c8bca9; font-size: 13px; }
+.stage-canvas { position: relative; flex: 1; min-height: 0; }
+.stage canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
 .side { border-left: 1px solid var(--line); background: var(--paper); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .side h3 { font-size: 16px; }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
@@ -212,6 +217,11 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; margin: 0; letter-spac
 
 /* ---------- 색칠 도구 ---------- */
 .editor-wrap { position: relative; background: var(--wall); border-radius: 12px; overflow: hidden; width: 100%; max-width: 440px; margin: 0 auto; }
+/* 태블릿: 색칠 창 양옆에 손가락으로 스크롤할 여백 */
+@media (pointer: coarse) {
+  .editor-wrap { width: calc(100% - 96px); }
+  .side { touch-action: pan-y; }
+}
 .editor-wrap canvas { display: block; width: 100%; aspect-ratio: 1 / 1; touch-action: none; cursor: crosshair; }
 .tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .tool {

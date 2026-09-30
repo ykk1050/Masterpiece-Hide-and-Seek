@@ -67,6 +67,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('player:join', (data, cb) => reply(cb, game.playerJoin(socket, data || {})));
+  socket.on('player:shape', (data, cb) => reply(cb, game.playerShape(socket, data || {})));
   socket.on('player:ready', (data) => game.playerReady(socket, data || {}));
   socket.on('player:move', (data) => game.playerMove(socket, data || {}));
   socket.on('player:paint', (data) => game.playerPaint(socket, data || {}));

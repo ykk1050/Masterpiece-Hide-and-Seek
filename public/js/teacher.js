@@ -19,7 +19,9 @@
   const settings = {
     hideSeconds: 300, turnSeconds: 40, missesAllowed: 1,
     seekerMode: 'random', charSize: 'medium', allowEyedropper: true,
+    seekRounds: 1, teacherPlays: false,
   };
+  let teacherPlayToken = null;
 
   const teacherAct = (action, payload) =>
     new Promise((resolve) => {
@@ -92,6 +94,8 @@
     settings.turnSeconds = Number($('#sTurn').value);
     settings.missesAllowed = Number($('#sMiss').value);
     settings.allowEyedropper = $('#sEyedrop').checked;
+    settings.seekRounds = Number($('#sRounds').value);
+    settings.teacherPlays = $('#sTeacherPlays').checked;
   }
 
   function writeSettingsForm(s) {
@@ -99,6 +103,8 @@
     $('#sTurn').value = s.turnSeconds;
     $('#sMiss').value = s.missesAllowed;
     $('#sEyedrop').checked = s.allowEyedropper;
+    $('#sRounds').value = s.seekRounds;
+    $('#sTeacherPlays').checked = s.teacherPlays;
     document.querySelectorAll('.seg[data-setting]').forEach((seg) => {
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === s[seg.dataset.setting]));
     });
@@ -113,7 +119,7 @@
       pushSettings();
     });
   });
-  ['#sHide', '#sTurn', '#sMiss', '#sEyedrop'].forEach((id) => $(id).addEventListener('change', pushSettings));
+  ['#sHide', '#sTurn', '#sMiss', '#sEyedrop', '#sRounds', '#sTeacherPlays'].forEach((id) => $(id).addEventListener('change', pushSettings));
 
   function pushSettings() {
     readSettingsForm();
@@ -137,6 +143,7 @@
       $('#createBtn').disabled = false;
       if (res.error) return MHS.toast(res.error, 'bad');
       sessionStorage.setItem(STORE_KEY, JSON.stringify({ code: res.code, teacherToken: res.teacherToken }));
+      teacherPlayToken = res.teacherPlayToken;
       onState(res.state);
     });
   };
@@ -156,6 +163,7 @@
         render();
         return;
       }
+      teacherPlayToken = res.teacherPlayToken;
       onState(res.state);
       if (monitorOn) teacherAct('monitor', { on: true });
     });
@@ -249,7 +257,7 @@
       const el = document.createElement('span');
       el.className = 'pchip' + (p.connected ? '' : ' off');
       el.appendChild(Views.avatar(p.shape));
-      el.insertAdjacentHTML('beforeend', `<span>${MHS.esc(p.name)}</span>`);
+      el.insertAdjacentHTML('beforeend', `<span>${MHS.esc(p.name)}${p.isTeacher ? ' 🧑‍🏫' : ''}</span>`);
       const x = document.createElement('button');
       x.className = 'x';
       x.title = '내보내기';
@@ -258,6 +266,15 @@
       el.appendChild(x);
       box.appendChild(el);
     }
+    const tj = $('#teacherJoinCard');
+    tj.classList.toggle('hidden', !state.settings.teacherPlays || !teacherPlayToken);
+    const link = `${location.origin}/play.html?code=${state.code}&t=${teacherPlayToken}`;
+    $('#teacherJoinLink').href = link;
+    const joined = state.players.some((p) => p.isTeacher && p.connected);
+    $('#teacherJoinLink').textContent = joined ? '✅ 선생님 참여 중 · 다시 열기 ↗' : '내 캐릭터로 참여하기 ↗';
+    $('#teacherJoinCopy').onclick = () => {
+      navigator.clipboard.writeText(link).then(() => MHS.toast('링크를 복사했어요. 태블릿 등 다른 기기에서 열어도 돼요.', 'ok'), () => MHS.toast(link));
+    };
     $('#startBtn').disabled = !state.players.length || !painting;
   }
 
@@ -265,14 +282,14 @@
     if (state.seek && state.seek.seekerId === p.id && state.phase === 'seeking') return '<span class="tag seeker">술래</span>';
     const parts = [];
     parts.push(p.found ? '<span class="tag found">발견됨</span>' : '<span class="tag safe">숨음</span>');
-    if (p.hasSought) parts.push('<span class="tag done">술래 완료</span>');
+    if (p.hasSought) parts.push(`<span class="tag done">${state.settings.seekRounds > 1 ? '이번 바퀴 술래 완료' : '술래 완료'}</span>`);
     return parts.join(' ');
   }
 
   function playerListHtml(withBars) {
     return `<ul class="plist">${state.players.map((p) => `
       <li class="${p.connected ? '' : 'muted'}">
-        <span class="nm">${withBars && p.ready ? '✅ ' : ''}${MHS.esc(p.name)}${p.connected ? '' : ' (연결 끊김)'}</span>
+        <span class="nm">${withBars && p.ready ? '✅ ' : ''}${MHS.esc(p.name)}${p.isTeacher ? ' 🧑‍🏫' : ''}${p.connected ? '' : ' (연결 끊김)'}</span>
         ${withBars ? `<span class="bar" title="색칠 ${p.painted}%"><i style="width:${p.painted}%"></i></span><span class="small muted" style="width:36px;text-align:right">${p.painted}%</span>` : statusTag(p)}
         ${!withBars && p.finds ? `<span class="small muted">${p.finds}명</span>` : ''}
       </li>`).join('')}</ul>`;
@@ -314,13 +331,14 @@
       } else if (s.stage === 'choosing' && state.settings.seekerMode === 'teacher') {
         const eligible = state.players.filter((p) => !p.hasSought && p.connected);
         top = `<div class="label-sm">다음 술래를 골라 주세요</div>
-          <div class="players" style="margin-top:8px">${eligible.map((p) => `<button class="btn sm" data-seeker="${p.id}">${MHS.esc(p.name)}</button>`).join('')}</div>
+          <div class="players" style="margin-top:8px">${eligible.map((p) => `<button class="btn sm" data-seeker="${p.id}">${MHS.esc(p.name)}${p.isTeacher ? ' 🧑‍🏫' : ''}</button>`).join('')}</div>
           <button class="btn sm primary" style="margin-top:10px" data-act="randomSeeker">🎲 무작위로 뽑기</button>`;
       } else if (s.stage === 'choosing') {
         top = '<div class="label-sm">술래를 뽑는 중</div><div class="muted">잠시만요<span class="dots"></span></div>';
       } else {
         top = '<div class="label-sm">차례 교대</div><div class="muted">다음 술래를 준비하고 있어요<span class="dots"></span></div>';
       }
+      if (state.settings.seekRounds > 1) top += `<div class="muted small" style="margin-top:8px">술래 ${s.round} / ${state.settings.seekRounds}바퀴째</div>`;
       html = `
         <div class="panel">${top}</div>
         <div class="panel">

@@ -93,6 +93,12 @@ const MHS = (() => {
     return [hue(p, q, h + 1 / 3) * 255, hue(p, q, h) * 255, hue(p, q, h - 1 / 3) * 255];
   }
 
+  /** 캐릭터의 (c, r) 칸 바로 아래 명화의 평균 색 (회전 반영) */
+  function sampleCell(painting, ch, cell, c, r) {
+    const p = Shapes.toWorld(ch, cell, c + 0.5, r + 0.5);
+    return sampleAvg(painting, p.x - cell / 2, p.y - cell / 2, cell, cell);
+  }
+
   /** 캐릭터 색이 그 자리 명화와 얼마나 비슷한지 (0~100) */
   function similarity(painting, ch, cell) {
     const s = Shapes.get(ch.shape);
@@ -101,7 +107,7 @@ const MHS = (() => {
       for (let c = 0; c < s.cols; c++) {
         const i = r * s.cols + c;
         if (!s.mask[i]) continue;
-        const want = sampleAvg(painting, ch.x + c * cell, ch.y + r * cell, cell, cell);
+        const want = sampleCell(painting, ch, cell, c, r);
         const got = hexToRgb(ch.pixels.substr(i * 6, 6));
         const d = Math.hypot(want[0] - got[0], want[1] - got[1], want[2] - got[2]);
         total += Math.max(0, 1 - d / 160);
@@ -136,6 +142,16 @@ const MHS = (() => {
     ctx.putImageData(img, 0, 0);
     charCache.set(key, { pixels: ch.pixels, shape: ch.shape, canvas });
     return canvas;
+  }
+
+  /** 캐릭터 하나를 (회전까지 적용해서) 월드 좌표계에 그린다 */
+  function drawChar(ctx, c, cell) {
+    const f = Shapes.frame(c, cell);
+    ctx.save();
+    ctx.translate(f.cx, f.cy);
+    ctx.rotate(c.rot || 0);
+    ctx.drawImage(charCanvas(c), -f.w / 2, -f.h / 2, f.w, f.h);
+    ctx.restore();
   }
 
   /** 마스크 경계를 따라 외곽선 경로를 만든다 (x, y, cell 은 그릴 좌표계 기준) */
@@ -215,16 +231,18 @@ const MHS = (() => {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(painting.img, 0, 0, painting.w, painting.h);
 
-    for (const c of chars) {
-      const s = Shapes.get(c.shape);
-      ctx.drawImage(charCanvas(c), c.x, c.y, s.cols * cell, s.rows * cell);
-    }
+    for (const c of chars) drawChar(ctx, c, cell);
 
     const lw = 1 / view.scale;
     for (const c of chars) {
       const style = opts.outline && opts.outline[c.id];
       if (!style) continue;
-      outlinePath(ctx, c.shape, c.x, c.y, cell);
+      const f = Shapes.frame(c, cell);
+      ctx.save();
+      ctx.translate(f.cx, f.cy);
+      ctx.rotate(c.rot || 0);
+      outlinePath(ctx, c.shape, -f.w / 2, -f.h / 2, cell);
+      ctx.restore();
       ctx.lineWidth = lw * 4;
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.stroke();
@@ -240,8 +258,8 @@ const MHS = (() => {
       for (const c of chars) {
         const label = opts.labels[c.id];
         if (!label) continue;
-        const s = Shapes.get(c.shape);
-        const tx = c.x + (s.cols * cell) / 2, ty = c.y - 4 * lw;
+        const f = Shapes.frame(c, cell);
+        const tx = f.cx, ty = f.cy - Math.hypot(f.w, f.h) / 2 - 4 * lw;
         const tw = ctx.measureText(label).width + 10 * lw * view.dpr;
         const th = 18 * lw * view.dpr;
         ctx.fillStyle = 'rgba(24,20,16,0.82)';
@@ -271,10 +289,7 @@ const MHS = (() => {
     ctx.setTransform(k, 0, 0, k, sx - c.x * k, sy - c.y * k);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(painting.img, 0, 0, painting.w, painting.h);
-    for (const ch of chars) {
-      const s = Shapes.get(ch.shape);
-      ctx.drawImage(charCanvas(ch), ch.x, ch.y, s.cols * cell, s.rows * cell);
-    }
+    for (const ch of chars) drawChar(ctx, ch, cell);
     ctx.restore();
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -331,7 +346,7 @@ const MHS = (() => {
 
   return {
     syncTime, now, remaining, fmtTime,
-    loadPainting, sampleAvg, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, similarity,
+    loadPainting, sampleAvg, sampleCell, drawChar, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, similarity,
     charCanvas, outlinePath, shapePreview, fitCanvas, toWorld, drawScene, drawLens, LENS,
     toast, esc, josa, paintingCaption, blockZoom,
   };

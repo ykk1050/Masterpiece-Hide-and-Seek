@@ -20,30 +20,48 @@
 
   const params = new URLSearchParams(location.search);
   if (params.get('code')) $('#codeInput').value = params.get('code');
+  // 선생님 참여 링크(?t=...)로 들어온 경우
+  const teacherPlayToken = params.get('t') || null;
+  if (teacherPlayToken) $('#nameInput').value = '선생님';
 
-  const grid = $('#shapeGrid');
-  for (const id of Shapes.ORDER) {
-    const b = document.createElement('button');
-    b.className = 'shape-btn' + (id === chosenShape ? ' on' : '');
-    b.dataset.shape = id;
-    const pv = document.createElement('div');
-    pv.className = 'pv';
-    pv.appendChild(MHS.shapePreview(id, 60));
-    b.appendChild(pv);
-    b.insertAdjacentHTML('beforeend', `<span>${Shapes.DEFS[id].name}</span>`);
-    b.onclick = () => {
-      chosenShape = id;
-      grid.querySelectorAll('.shape-btn').forEach((x) => x.classList.toggle('on', x === b));
-    };
-    grid.appendChild(b);
+  /** 모양 고르기 버튼 묶음 (입장 화면, 대기실 공용) */
+  function buildShapeGrid(grid, onPick) {
+    grid.innerHTML = '';
+    for (const id of Shapes.ORDER) {
+      const b = document.createElement('button');
+      b.className = 'shape-btn';
+      b.dataset.shape = id;
+      const pv = document.createElement('div');
+      pv.className = 'pv';
+      pv.appendChild(MHS.shapePreview(id, 60));
+      b.appendChild(pv);
+      b.insertAdjacentHTML('beforeend', `<span>${Shapes.DEFS[id].name}</span>`);
+      b.onclick = () => onPick(id);
+      grid.appendChild(b);
+    }
   }
+  const markShape = (grid, id) => grid.querySelectorAll('.shape-btn').forEach((x) => x.classList.toggle('on', x.dataset.shape === id));
+
+  buildShapeGrid($('#shapeGrid'), (id) => { chosenShape = id; markShape($('#shapeGrid'), id); });
+  markShape($('#shapeGrid'), chosenShape);
+
+  // 대기실: 다음 판 모양 바꾸기
+  buildShapeGrid($('#waitShapeGrid'), (id) => {
+    if (!me || id === me.shape) return;
+    socket.emit('player:shape', { shape: id }, (res) => {
+      if (res.error) return MHS.toast(res.error, 'bad');
+      setMe(res.you);
+      MHS.toast(`${MHS.josa(Shapes.DEFS[id].name, '으로', '로')} 바꿨어요!`, 'ok');
+      render();
+    });
+  });
 
   $('#joinBtn').onclick = () => {
     const code = $('#codeInput').value.trim();
     const name = $('#nameInput').value.trim();
     if (!/^\d{4}$/.test(code)) return MHS.toast('방 번호 4자리를 입력해 주세요.', 'bad');
     if (!name) return MHS.toast('이름을 입력해 주세요.', 'bad');
-    join({ code, name, shape: chosenShape });
+    join({ code, name, shape: chosenShape, teacherPlayToken });
   };
   $('#nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#joinBtn').click(); });
 
@@ -156,6 +174,7 @@
       av.innerHTML = '';
       av.appendChild(MHS.shapePreview(me.shape, 100));
       $('#waitTitle').textContent = `${me.name}, 환영해요!`;
+      markShape($('#waitShapeGrid'), me.shape);
       $('#waitImg').src = state.painting.url;
       $('#waitCaption').textContent = MHS.paintingCaption(state.painting);
       const box = $('#waitPlayers');
@@ -164,7 +183,7 @@
         const el = document.createElement('span');
         el.className = 'pchip' + (p.connected ? '' : ' off');
         el.appendChild(Views.avatar(p.shape));
-        el.insertAdjacentHTML('beforeend', `<span>${MHS.esc(p.name)}</span>`);
+        el.insertAdjacentHTML('beforeend', `<span>${MHS.esc(p.name)}${p.isTeacher ? ' 🧑‍🏫' : ''}</span>`);
         box.appendChild(el);
       }
     }
@@ -179,6 +198,7 @@
         el.style.opacity = ready ? 0.45 : '';
         el.style.pointerEvents = ready ? 'none' : '';
       });
+      $('#rotInfo').textContent = `지금 ${Math.round(((me.rot || 0) * 180) / Math.PI)}°`;
       $('#paintTip').textContent = state.settings.allowEyedropper
         ? '💧 스포이드로 그림에서 색을 뽑을 수 있어요. 그래도 비슷한 색을 직접 만들어 보면 더 재미있어요!'
         : '🎨 이번 판은 스포이드로 그림 색을 뽑을 수 없어요. 밝게·어둡게·따뜻하게 버튼으로 색을 맞춰 보세요.';
@@ -203,11 +223,12 @@
     } else {
       html = '<div class="label-sm">차례 교대</div><h3>잠시만요<span class="dots"></span></h3>';
     }
-    html += `<div style="margin-top:10px">${mine.found ? '<span class="tag found">나는 들켰어요</span>' : '<span class="tag safe">나는 아직 숨어 있어요 🤫</span>'} ${mine.hasSought ? '<span class="tag done">술래 해 봤어요</span>' : ''}</div>`;
+    if (state.settings.seekRounds > 1) html += `<div class="muted small" style="margin-top:6px">술래 ${s.round} / ${state.settings.seekRounds}바퀴째</div>`;
+    html += `<div style="margin-top:10px">${mine.found ? '<span class="tag found">나는 들켰어요</span>' : '<span class="tag safe">나는 아직 숨어 있어요 🤫</span>'} ${mine.hasSought ? '<span class="tag done">이번 바퀴 술래 완료</span>' : ''}</div>`;
     $('#seekStatus').innerHTML = html;
     $('#whereBtn').classList.toggle('hidden', !!mine.found);
     $('#seekPlayers').innerHTML = `<ul class="plist">${state.players.map((p) => `
-      <li><span class="nm">${MHS.esc(p.name)}${p.id === me.id ? ' (나)' : ''}</span>
+      <li><span class="nm">${MHS.esc(p.name)}${p.isTeacher ? ' 🧑‍🏫' : ''}${p.id === me.id ? ' (나)' : ''}</span>
       ${p.id === s.seekerId ? '<span class="tag seeker">술래</span>' : p.found ? '<span class="tag found">발견됨</span>' : '<span class="tag safe">숨음</span>'}
       ${p.finds ? `<span class="small muted">${p.finds}명</span>` : ''}</li>`).join('')}</ul>`;
   }
@@ -321,6 +342,11 @@
       editor.undo();
       return;
     }
+    if ((e.key === 'q' || e.key === 'e' || e.key === 'Q' || e.key === 'E') && document.activeElement.tagName !== 'INPUT') {
+      if (amReady()) return;
+      rotateMe((me.rot || 0) + ((e.key.toLowerCase() === 'e' ? 15 : -15) * Math.PI) / 180, true);
+      return;
+    }
     const step = state.cell;
     const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
     if (d && document.activeElement.tagName !== 'INPUT') {
@@ -346,14 +372,43 @@
   }
 
   function moveMe(x, y, final) {
-    const { w, h } = charSize();
-    me.x = Math.max(0, Math.min(painting.w - w, x));
-    me.y = Math.max(0, Math.min(painting.h - h, y));
+    Object.assign(me, Shapes.clampPos({ ...me, x, y }, state.cell, painting));
     if (final || Date.now() - lastMoveSent > 80) {
       lastMoveSent = Date.now();
-      socket.emit('player:move', { x: me.x, y: me.y });
+      socket.emit('player:move', { x: me.x, y: me.y, rot: me.rot || 0 });
     }
   }
+
+  function rotateMe(rot, final) {
+    me.rot = Shapes.normAngle(rot);
+    moveMe(me.x, me.y, final); // 돌리면서 그림 밖으로 나가지 않게 위치도 다시 맞춤
+    $('#rotInfo').textContent = `지금 ${Math.round((me.rot * 180) / Math.PI)}°`;
+  }
+
+  document.querySelectorAll('#rotateRow [data-rot]').forEach((b) => {
+    b.onclick = () => {
+      if (amReady() || !me) return;
+      const d = Number(b.dataset.rot);
+      rotateMe(d === 0 ? 0 : (me.rot || 0) + (d * Math.PI) / 180, true);
+    };
+  });
+
+  /* 회전 입력: 컴퓨터는 우클릭한 채 끌기, 태블릿은 두 손가락으로 돌리기 */
+  const touches = new Map(); // pointerId → 화면 좌표
+  let rotating = null; // { startAngle, startRot, mode }
+  const centerOnScreen = () => {
+    const f = Shapes.frame(me, state.cell);
+    const rect = field.getBoundingClientRect();
+    return {
+      x: rect.left + (lastView.ox + f.cx * lastView.scale) / lastView.dpr,
+      y: rect.top + (lastView.oy + f.cy * lastView.scale) / lastView.dpr,
+    };
+  };
+  const angleOfTouches = () => {
+    const [a, b] = [...touches.values()];
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  };
+  field.addEventListener('contextmenu', (e) => e.preventDefault());
 
   let seekPending = false;
   field.addEventListener('pointerdown', (e) => {
@@ -361,9 +416,26 @@
     const w = MHS.toWorld(lastView, field, e);
     if (state.phase === 'hiding') {
       if (amReady()) return MHS.toast('그리기 완료 상태예요. 고치려면 [다시 그리기]를 누르세요.');
-      field.setPointerCapture(e.pointerId);
+      try { field.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 실패해도 계속 */ }
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) {
+          // 두 손가락: 이동을 멈추고 회전 시작
+          drag = null;
+          rotating = { startAngle: angleOfTouches(), startRot: me.rot || 0, mode: 'touch' };
+          return;
+        }
+        if (touches.size > 2 || rotating) return;
+      }
+      if (e.button === 2) {
+        const c = centerOnScreen();
+        rotating = { startAngle: Math.atan2(e.clientY - c.y, e.clientX - c.x), startRot: me.rot || 0, mode: 'mouse' };
+        return;
+      }
       const { w: cw, h: ch } = charSize();
-      const inside = w.x >= me.x && w.x <= me.x + cw && w.y >= me.y && w.y <= me.y + ch;
+      const l = Shapes.toLocal(me, state.cell, w.x, w.y);
+      const s0 = Shapes.get(me.shape);
+      const inside = l.c >= 0 && l.r >= 0 && l.c <= s0.cols && l.r <= s0.rows;
       drag = inside ? { dx: w.x - me.x, dy: w.y - me.y } : { dx: cw / 2, dy: ch / 2 };
       moveMe(w.x - drag.dx, w.y - drag.dy, false);
     } else if (isSeeker() && state.seek.stage === 'turn' && !seekPending && !confirmAt) {
@@ -424,15 +496,31 @@
   field.addEventListener('pointermove', (e) => {
     if (!lastView || !state) return;
     const w = MHS.toWorld(lastView, field, e);
+    if (state.phase === 'hiding' && touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (rotating && state.phase === 'hiding') {
+      let now;
+      if (rotating.mode === 'touch') {
+        if (touches.size < 2) return;
+        now = angleOfTouches();
+      } else {
+        const c = centerOnScreen();
+        now = Math.atan2(e.clientY - c.y, e.clientX - c.x);
+      }
+      rotateMe(rotating.startRot + (now - rotating.startAngle), false);
+      return;
+    }
     if (drag && state.phase === 'hiding') moveMe(w.x - drag.dx, w.y - drag.dy, false);
     if (isSeeker()) {
       cursor = w;
       socket.emit('seek:cursor', w);
     }
   });
-  const endDrag = () => {
-    if (drag && state && state.phase === 'hiding') moveMe(me.x, me.y, true);
+  const endDrag = (e) => {
+    if ((drag || rotating) && state && state.phase === 'hiding') moveMe(me.x, me.y, true);
     drag = null;
+    touches.delete(e.pointerId);
+    // 두 손가락 회전은 손가락을 모두 뗄 때까지 유지 (한 손가락이 남아도 갑자기 이동하지 않도록)
+    if (!rotating || rotating.mode === 'mouse' || touches.size === 0) rotating = null;
   };
   field.addEventListener('pointerup', endDrag);
   field.addEventListener('pointercancel', endDrag);
@@ -464,10 +552,12 @@
     if (state.phase === 'hiding') {
       list = [{ ...me }];
       const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 250);
-      if (!drag) outline[me.id] = `rgba(255, 209, 102, ${pulse.toFixed(2)})`;
+      if (!drag && !rotating) outline[me.id] = `rgba(255, 209, 102, ${pulse.toFixed(2)})`;
       banner.textContent = amReady() ? '✅ 그리기 완료! 친구들을 기다리는 중…' : '🎨 자리를 잡고 그 자리 그림과 똑같이 색칠하세요!';
       banner.classList.remove('me');
-      hint.textContent = '그림을 누르거나 끌어서 캐릭터를 옮겨요 · 방향키로 한 칸씩 옮길 수 있어요';
+      hint.textContent = isTouch
+        ? '끌어서 옮기기 · 두 손가락으로 돌리기'
+        : '끌어서 옮기기 · 우클릭한 채 끌어서 돌리기 · 방향키 이동 · Q/E 회전';
       editor.render();
     } else {
       list = chars.filter((c) => byId.has(c.id));
