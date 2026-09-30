@@ -278,10 +278,22 @@
   });
   $('#gridToggle').onchange = (e) => { editor.grid = e.target.checked; };
 
-  const peekOn = () => { editor.peek = true; };
-  const peekOff = () => { editor.peek = false; };
-  $('#peekBtn').addEventListener('pointerdown', peekOn);
-  ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => $('#peekBtn').addEventListener(t, peekOff));
+  /**
+   * 누르고 있는 동안만 켜지는 버튼.
+   * 태블릿에서 길게 누르면 뜨는 글자 선택·복사 메뉴를 막고,
+   * 손가락이 조금 움직여 버튼 밖으로 나가도 손을 뗄 때까지 유지한다.
+   */
+  function holdButton(el, on, off) {
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 실패해도 계속 */ }
+      on();
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((t) => el.addEventListener(t, off));
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('selectstart', (e) => e.preventDefault());
+  }
+  holdButton($('#peekBtn'), () => { editor.peek = true; }, () => { editor.peek = false; });
 
   function setColor(hex) {
     editor.color = hex;
@@ -356,8 +368,7 @@
     }
   });
 
-  $('#whereBtn').addEventListener('pointerdown', () => { showWhere = true; });
-  ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => $('#whereBtn').addEventListener(t, () => { showWhere = false; }));
+  holdButton($('#whereBtn'), () => { showWhere = true; }, () => { showWhere = false; });
 
   /* ---------- 필드(그림판) ---------- */
 

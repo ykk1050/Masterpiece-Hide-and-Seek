@@ -217,6 +217,12 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; margin: 0; letter-spac
 
 /* ---------- 색칠 도구 ---------- */
 .editor-wrap { position: relative; background: var(--wall); border-radius: 12px; overflow: hidden; width: 100%; max-width: 440px; margin: 0 auto; }
+/* 게임 화면에서 길게 누를 때 글자 선택·복사 메뉴가 뜨지 않게 */
+.game, .btn, .tool, .shape-btn, .swatches button, .sizes button {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+/* 누르고 있는 동안 동작하는 버튼: 스크롤·확대 제스처로 뺏기지 않게 */
+.hold-btn { touch-action: none; }
 /* 태블릿: 색칠 창 양옆에 손가락으로 스크롤할 여백 */
 @media (pointer: coarse) {
   .editor-wrap { width: calc(100% - 96px); }
