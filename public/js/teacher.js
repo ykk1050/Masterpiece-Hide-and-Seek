@@ -46,6 +46,22 @@
       b.onclick = () => { selected = { kind: 'preset', id: p.id }; markGallery(); };
       g.appendChild(b);
     }
+    // 무작위: 누를 때마다 지금과 다른 명화를 하나 골라 준다
+    const rnd = document.createElement('button');
+    rnd.className = 'art upload';
+    rnd.id = 'randomTile';
+    rnd.innerHTML = '<div class="thumb">🎲</div><div class="t">무작위로 고르기</div><div class="a">누를 때마다 다른 그림</div>';
+    rnd.onclick = () => {
+      const pool = list.filter((p) => !(selected.kind === 'preset' && selected.id === p.id));
+      const p = pool[Math.floor(Math.random() * pool.length)];
+      selected = { kind: 'preset', id: p.id };
+      markGallery();
+      const tile = g.querySelector(`.art[data-id="${p.id}"]`);
+      tile.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      tile.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 500 });
+      MHS.toast(`🎲 ${p.title} — ${p.artist}`, 'ok');
+    };
+    g.prepend(rnd);
     const up = document.createElement('button');
     up.className = 'art upload';
     up.id = 'uploadTile';
