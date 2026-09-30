@@ -447,7 +447,8 @@
       const near = lastTap && Math.hypot(e.clientX - lastTap.cx, e.clientY - lastTap.cy) < 40;
       if (lastTap && now - lastTap.t < 350 && near) {
         lastTap = null;
-        askConfirm(w);
+        e.preventDefault(); // 터치 뒤에 따라오는 가짜 마우스 클릭 막기
+        askConfirm(w, e.clientY);
       } else {
         lastTap = { t: now, cx: e.clientX, cy: e.clientY };
       }
@@ -477,20 +478,37 @@
         <button class="btn big primary" data-c="yes">네, 여기예요!</button>
       </div></div>`;
   document.body.appendChild(confirmBox);
-  function askConfirm(w) {
+  // 두 번째 탭에서 손가락을 떼는 동작이 확인 창 버튼을 눌러 버리지 않도록:
+  // 창을 손가락에서 먼 쪽(위/아래)에 띄우고, 뜬 직후 잠깐은 창을 누를 수 없게 한다
+  const CONFIRM_GUARD_MS = 600;
+  let confirmOpenedAt = 0;
+  let confirmGuardTimer = null;
+  function askConfirm(w, clientY) {
     confirmAt = w;
+    confirmOpenedAt = performance.now();
+    const tappedLow = clientY > window.innerHeight / 2;
+    confirmBox.style.alignItems = tappedLow ? 'start' : 'end';
+    confirmBox.style.paddingTop = tappedLow ? '72px' : '';
+    confirmBox.style.paddingBottom = tappedLow ? '' : '24px';
+    confirmBox.style.pointerEvents = 'none';
+    clearTimeout(confirmGuardTimer);
+    confirmGuardTimer = setTimeout(() => { confirmBox.style.pointerEvents = ''; }, CONFIRM_GUARD_MS);
     confirmBox.classList.remove('hidden');
   }
   function closeConfirm() {
     confirmAt = null;
     confirmBox.classList.add('hidden');
   }
+  const confirmReady = () => performance.now() - confirmOpenedAt >= CONFIRM_GUARD_MS;
   confirmBox.querySelector('[data-c=yes]').onclick = () => {
+    if (!confirmReady()) return;
     const w = confirmAt;
     closeConfirm();
     if (w && isSeeker() && state.seek.stage === 'turn') sendSeek(w);
   };
-  confirmBox.querySelector('[data-c=no]').onclick = closeConfirm;
+  confirmBox.querySelector('[data-c=no]').onclick = () => {
+    if (confirmReady()) closeConfirm();
+  };
   // 차례가 끝나면(시간 초과 등) 확인 창도 닫기
   socket.on('room:state', () => { if (confirmAt && !(isSeeker() && state.seek.stage === 'turn')) closeConfirm(); });
   field.addEventListener('pointermove', (e) => {
